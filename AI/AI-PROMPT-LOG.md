@@ -55,4 +55,18 @@ This file tracks all significant prompts, their purpose, and outcomes.
 
 ---
 
+### PROMPT-004
+**Phase:** Pre-implementation — Skill Installation
+**Tool:** Claude Code (claude-sonnet-4-6, WebFetch + Write)
+**Purpose:** Install 27 skills from the `antigravity-awesome-skills` GitHub repository into `.claude/skills/` so Claude Code can invoke them during implementation via `@skill-name` references.
+**Context Given:**
+- GitHub repo: `https://github.com/sickn33/antigravity-awesome-skills`
+- Requirement: all skills relevant to the implementation; exclude `azure-servicebus-dotnet`
+- Format: `.claude/skills/{skill-name}/SKILL.md`
+**Prompt Summary:**
+> "Now check repo https://github.com/sickn33/antigravity-awesome-skills check all available skills... list names of all the skills we require for implementation... Can you put them under .claude folder in relevant format? dont add /azure-servicebus-dotnet rest are fine"
+**Outcome:** 27 SKILL.md files written to `D:\Kibo\.claude\skills\` — each skill fetched directly from the raw GitHub URL to avoid hallucination. Skills cover: .NET/C# backend, DDD (tactical + strategic + context mapping), microservices, Docker, API design, event sourcing, Redis/MongoDB management, clean code, error handling, performance, E2E testing, frontend (React/TanStack), and agent orchestration. Claude Code system immediately recognized all 27 skills as available.
+
+---
+
 *(Additional prompts will be logged here as the session progresses)*
