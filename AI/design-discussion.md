@@ -1,7 +1,7 @@
 # Design Discussion
 ## Inventory Hold Microservice — Requirements Clarification Q&A
 
-**Brainstorm Duration:** 1 hour 15 minutes
+**Brainstorm Duration:** 1 hour 30 minutes
 
 This document captures the full architectural Q&A session conducted before writing any code. Each question surfaces an ambiguity in the assignment spec, presents trade-offs, and records the decision made. The goal was to resolve all unknowns upfront so implementation has no guesswork.
 
@@ -300,6 +300,177 @@ MongoDB guarantees only ONE operation matches the filter. The other gets `null` 
 
 ---
 
+## Gap Analysis — Pre-Implementation Cross-Reference (Q24–Q37)
+
+A second pass was run against the full spec after the initial 23 Q&A decisions to find anything missed. 14 additional gaps were identified and resolved before any code was written.
+
+---
+
+### Q24: MongoDB Indexes — Never Decided
+
+**Question:** What indexes are needed for correctness and performance? The background worker runs every 30s querying for expired active holds — without an index this is a full collection scan.
+
+**Answer:**
+```
+holds collection:
+  { status: 1, expiresAt: 1 }     → background worker query (find Active holds past expiresAt)
+  { status: 1, createdAt: -1 }    → GET /api/holds list with status filter + descending sort
+
+inventory collection:
+  { productId: 1 }  unique        → fast lookup during hold creation validation
+```
+MongoDB default `_id` index covers GET /api/holds/{holdId}.
+
+---
+
+### Q25: Document ID Strategy — Never Decided
+
+**Question:** Should holdId use MongoDB's native ObjectId or a GUID string? This affects URL shape, API contracts, Redis cache keys, and RabbitMQ event payloads — changing it post-launch is a breaking change.
+
+**Answer:** GUID string (`Guid.NewGuid().ToString()`) for hold `_id`. ObjectId stays internal for inventory documents only.
+
+**Reasoning:** GUIDs don't expose DB technology to clients, are standard in .NET, can be generated before DB insert (useful for idempotency), and are readable in logs. URL pattern: `/api/holds/550e8400-e29b-41d4-a716-446655440000`.
+
+---
+
+### Q26: MongoDB Transaction Write Conflict — Never Decided
+
+**Question:** Two concurrent `POST /api/holds` requests for the last unit of a product both pass the `availableQuantity >= requested` check inside their transactions. When one commits, the other hits MongoDB error code 112 (WriteConflict). Without handling, this surfaces as an unhandled 500.
+
+**Answer:** Catch `MongoCommandException` with code 112 specifically. Retry the entire transaction up to **3 times** with **50ms exponential backoff**. After all retries exhausted → `409 Conflict` with ProblemDetails: `"Stock temporarily unavailable due to high demand. Please try again."` Do not retry on any other exception type.
+
+---
+
+### Q27: RabbitMQ Event Payload Schema — Topology Only, Payload Never Defined
+
+**Question:** Q11 decided exchange/queue topology but not what JSON fields each event contains. Spec says "enough context for a downstream consumer to act on them" — but that's undefined.
+
+**Answer:**
+```json
+HoldCreated:  { "holdId", "customerName", "status", "items": [{"productId", "productName", "quantity"}], "createdAt", "expiresAt" }
+HoldReleased: { "holdId", "customerName", "status", "items": [{"productId", "productName", "quantity"}], "releasedAt" }
+HoldExpired:  { "holdId", "customerName", "status", "items": [{"productId", "productName", "quantity"}], "expiredAt" }
+```
+Each event includes `items` so a downstream restocking or analytics service can act without a secondary DB lookup.
+
+---
+
+### Q28: Complete MongoDB Document Field Sets — Never Formally Defined
+
+**Question:** Fields were mentioned across Q3, Q6, Q7, Q10 but no authoritative schema was defined. Implementation risk: inconsistent field names across layers.
+
+**Answer:**
+```
+Hold document:
+  _id:          string (GUID)
+  customerName: string? (nullable)
+  status:       "Active" | "Released" | "Expired"
+  items:        [{ productId: string, productName: string, quantity: int }]
+  createdAt:    DateTime (UTC)
+  expiresAt:    DateTime (UTC)
+  releasedAt:   DateTime? (UTC — set on successful DELETE)
+  expiredAt:    DateTime? (UTC — set by background worker)
+
+Inventory document:
+  _id:               ObjectId
+  productId:         string (slug, e.g. "widget-a")
+  name:              string
+  totalQuantity:     int
+  availableQuantity: int  ← materialized, mutated atomically
+  createdAt:         DateTime (UTC)
+
+Settings document:
+  _id:       string (key, e.g. "HoldExpirationMinutes")
+  value:     BsonValue
+  updatedAt: DateTime (UTC)
+```
+
+---
+
+### Q29: DELETE /api/holds/{holdId} — Non-Existent Hold HTTP Response
+
+**Question:** Q4 covers Expired (410). Q15 covers Released (410). What HTTP code for a holdId that never existed?
+
+**Answer:** `404 Not Found`. Spec explicitly states "Returns a 404 if the hold does not exist." 404 = never existed or unknown. 410 = existed, now permanently gone. These are semantically distinct and client code must distinguish them.
+
+---
+
+### Q30: GET /api/holds/{holdId} — Non-Existent Hold Confirmed
+
+**Question:** Q5 says expired holds return `200 OK` with `status: "Expired"`. A truly non-existent holdId was not explicitly confirmed.
+
+**Answer:** `404 Not Found`. Spec explicitly states this. Q5's rule ("reads of resources in terminal states return 200") applies only to documents that exist in MongoDB. A non-existent `_id` returns 404.
+
+---
+
+### Q31: DELETE /api/holds/{holdId} — Success Response
+
+**Question:** Q4/Q15 cover 410 for terminal states. A successful release (Active → Released) response body was never defined — 200 with body or 204 No Content?
+
+**Answer:** `200 OK` with the full released hold document (including `releasedAt` timestamp). Consistent with Q5 pattern: return the resource's final state after mutation. Frontend can update the hold card immediately with the returned data without a follow-up GET.
+
+---
+
+### Q32: RabbitMQ Scope — Publishers Only or Publishers + Consumers?
+
+**Question:** The spec says "publish events to RabbitMQ" and "events should contain enough context for a downstream consumer." Does the assignment require implementing consumer workers inside this service?
+
+**Answer:** Publishers only. The "downstream consumer" is a separate service. This service's responsibility is to publish events correctly with sufficient payload. No consumer implementation needed.
+
+---
+
+### Q33: Seed Data Content — Products and Quantities
+
+**Question:** Q22 decided to seed 5 products on startup but never defined which products or their initial quantities. Unit tests reference known productIds.
+
+**Answer:**
+```
+{ productId: "widget-a",  name: "Widget A",      totalQuantity: 50 }
+{ productId: "widget-b",  name: "Widget B",      totalQuantity: 30 }
+{ productId: "gadget-x",  name: "Gadget X",      totalQuantity: 20 }
+{ productId: "device-z",  name: "Device Z",      totalQuantity: 10 }
+{ productId: "part-001",  name: "Spare Part 001", totalQuantity: 100 }
+```
+Device Z (quantity 10) makes it easy to demo stock-out and retry scenarios. Spare Part 001 (100 units) supports bulk hold demos.
+
+---
+
+### Q34: Pagination Maximum pageSize — Never Capped
+
+**Question:** Q9 allows `?pageSize=` without upper bound. `?pageSize=999999` is a trivial resource exhaustion vector.
+
+**Answer:** Server-side cap at `pageSize = 100`. Return `422 Unprocessable Entity` if client requests more.
+
+---
+
+### Q35: Background Worker Cache Invalidation — Wasteful if Nothing Expired
+
+**Question:** If no holds expired in a 30s polling cycle, should the worker still invalidate the `inventory:all` Redis cache key?
+
+**Answer:** No. Only invalidate cache keys when holds actually expired and inventory was mutated. If zero holds expire in a cycle → zero Redis operations. Prevents unnecessary cache churn on idle systems.
+
+---
+
+### Q36: All Timestamps UTC
+
+**Question:** Holds have `createdAt`, `expiresAt`, `releasedAt`, `expiredAt`. Are these UTC or local time?
+
+**Answer:** All `DateTime` values use `DateTime.UtcNow`. API accepts and returns ISO 8601 UTC strings (e.g., `"2026-06-27T10:15:00Z"`). `DateTime.Now` is forbidden in all service code.
+
+---
+
+### Q37: Frontend Error UX Pattern
+
+**Question:** Spec requires "error handling (surface API errors to the user) and loading states." The pattern was never specified — toast, modal, inline?
+
+**Answer:**
+- Form validation errors → inline below the relevant field
+- API domain errors (409 insufficient stock, 404 not found, 422 invalid input) → inline error banner in the relevant section with the ProblemDetails `detail` message
+- Network / 500 errors → toast notification (non-blocking, auto-dismisses)
+- Loading states → skeleton loaders on lists, spinner icon on action buttons during mutations (TanStack Query `isPending`)
+
+---
+
 ## Decisions Summary
 
 | # | Decision | Choice |
@@ -327,3 +498,17 @@ MongoDB guarantees only ONE operation matches the filter. The other gets `null` 
 | Q21 | Health checks | Yes — `/health` with MongoDB + Redis + RabbitMQ checks |
 | Q22 | DB seeding | Seed on empty + `POST /api/inventory/reset` endpoint |
 | Q23 | Worker/DELETE race | Atomic `findOneAndUpdate` with `status: "Active"` guard |
+| Q24 | MongoDB indexes | `{status,expiresAt}`, `{status,createdAt}`, `{productId}` unique |
+| Q25 | Document ID strategy | GUID string for holdId, ObjectId internal for inventory |
+| Q26 | Write conflict handling | Retry 3x / 50ms backoff → `409` after exhaustion |
+| Q27 | RabbitMQ event payloads | holdId, customerName, items[], timestamps per event type |
+| Q28 | Document field sets | Hold, Inventory, Settings schemas fully defined |
+| Q29 | DELETE non-existent hold | `404 Not Found` (distinct from `410` for terminal states) |
+| Q30 | GET non-existent hold | `404 Not Found` (spec explicit) |
+| Q31 | DELETE success response | `200 OK` with released hold document (includes `releasedAt`) |
+| Q32 | RabbitMQ consumer scope | Publishers only — consumers are downstream services |
+| Q33 | Seed data | 5 products defined with quantities 10–100 |
+| Q34 | Pagination max pageSize | Capped at 100, `422` if exceeded |
+| Q35 | Background worker cache | Only invalidate Redis if holds actually expired |
+| Q36 | Timestamps | All UTC, `DateTime.UtcNow` everywhere |
+| Q37 | Frontend error UX | Inline errors for domain errors, toast for network/500 errors |

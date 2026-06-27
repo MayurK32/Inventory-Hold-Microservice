@@ -18,7 +18,7 @@
 
 ## Design Discussion
 
-**Brainstorm Duration:** 1 hour 15 minutes
+**Brainstorm Duration:** 1 hour 30 minutes
 
 Before writing a single line of code, a structured Q&A session was conducted to surface and resolve every ambiguity in the assignment spec. 23 questions were asked and answered, covering concurrency model, expiry mechanism, API contracts, caching strategy, RabbitMQ topology, frontend architecture, and edge cases.
 
