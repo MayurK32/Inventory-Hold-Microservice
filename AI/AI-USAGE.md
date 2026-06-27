@@ -13,6 +13,7 @@
 - Conducted structured Q&A to resolve all ambiguities before writing any code
 - Used AI-PROMPT-LOG.md to track all significant prompt decisions
 - All architectural decisions documented before implementation
+- Before writing any code, collected all skills required for implementation from the `antigravity-awesome-skills` skill library and installed them under `.claude/skills/` — 27 skills covering .NET/C#, DDD, Docker, API design, event sourcing, Redis/MongoDB, clean code, error handling, performance, E2E testing, and React frontend
 
 ---
 
