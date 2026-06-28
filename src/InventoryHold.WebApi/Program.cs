@@ -57,10 +57,10 @@ try
         sp.GetRequiredService<IMongoDatabase>().GetCollection<InventoryDocument>("inventory"));
     builder.Services.AddSingleton(sp =>
         sp.GetRequiredService<IMongoDatabase>().GetCollection<AppSettingDocument>("settings"));
-    builder.Services.AddSingleton<IHoldRepository, MongoHoldRepository>();
-    builder.Services.AddSingleton<IInventoryRepository, MongoInventoryRepository>();
-    builder.Services.AddSingleton<ISettingsRepository, MongoSettingsRepository>();
-    builder.Services.AddSingleton<ITransactionFactory, MongoTransactionFactory>();
+    builder.Services.AddScoped<IHoldRepository, MongoHoldRepository>();
+    builder.Services.AddScoped<IInventoryRepository, MongoInventoryRepository>();
+    builder.Services.AddScoped<ISettingsRepository, MongoSettingsRepository>();
+    builder.Services.AddScoped<ITransactionFactory, MongoTransactionFactory>();
     builder.Services.AddSingleton<CollectionIndexInitializer>();
     builder.Services.AddSingleton<DatabaseSeeder>();
 

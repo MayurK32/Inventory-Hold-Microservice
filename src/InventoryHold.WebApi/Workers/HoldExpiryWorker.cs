@@ -3,13 +3,13 @@ using InventoryHold.Domain.Cache;
 using InventoryHold.Domain.Entities;
 using InventoryHold.Domain.Messaging;
 using InventoryHold.Domain.Repositories;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace InventoryHold.WebApi.Workers;
 
 public sealed class HoldExpiryWorker(
-    IHoldRepository holdRepository,
-    IInventoryRepository inventoryRepository,
+    IServiceScopeFactory scopeFactory,
     IInventoryCache cache,
     IHoldEventPublisher eventPublisher,
     IOptions<HoldSettings> holdSettings,
@@ -45,6 +45,10 @@ public sealed class HoldExpiryWorker(
         }
         try
         {
+            using var scope = scopeFactory.CreateScope();
+            var holdRepository = scope.ServiceProvider.GetRequiredService<IHoldRepository>();
+            var inventoryRepository = scope.ServiceProvider.GetRequiredService<IInventoryRepository>();
+
             var expired = await holdRepository.GetExpiredActiveAsync(DateTime.UtcNow, ct);
 
             logger.LogDebug("Expiry tick: {Count} candidate(s) found", expired.Count);

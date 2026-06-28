@@ -88,9 +88,16 @@ public sealed class MongoHoldRepository(IMongoCollection<HoldDocument> collectio
                 Enum.Parse<HoldStatus>(status, ignoreCase: true)));
         if (cursor is not null)
         {
-            var cursorDate = DateTime.Parse(cursor.Split('|')[0], null,
+            var parts = cursor.Split('|');
+            var cursorDate = DateTime.Parse(parts[0], null,
                 System.Globalization.DateTimeStyles.RoundtripKind);
-            filters.Add(Builders<HoldDocument>.Filter.Lt(h => h.CreatedAt, cursorDate));
+            var cursorId = parts[1];
+            // compound predicate: same page position is impossible to skip or duplicate
+            filters.Add(Builders<HoldDocument>.Filter.Or(
+                Builders<HoldDocument>.Filter.Lt(h => h.CreatedAt, cursorDate),
+                Builders<HoldDocument>.Filter.And(
+                    Builders<HoldDocument>.Filter.Eq(h => h.CreatedAt, cursorDate),
+                    Builders<HoldDocument>.Filter.Lt(h => h.Id, cursorId))));
         }
 
         var filter = filters.Count > 0
@@ -99,7 +106,9 @@ public sealed class MongoHoldRepository(IMongoCollection<HoldDocument> collectio
 
         var findOpts = new FindOptions<HoldDocument>
         {
-            Sort = Builders<HoldDocument>.Sort.Descending(h => h.CreatedAt),
+            Sort = Builders<HoldDocument>.Sort.Combine(
+                Builders<HoldDocument>.Sort.Descending(h => h.CreatedAt),
+                Builders<HoldDocument>.Sort.Descending(h => h.Id)),
             Limit = pageSize + 1
         };
 

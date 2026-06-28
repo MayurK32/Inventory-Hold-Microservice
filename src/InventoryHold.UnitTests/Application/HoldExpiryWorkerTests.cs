@@ -5,6 +5,7 @@ using InventoryHold.Domain.Entities;
 using InventoryHold.Domain.Messaging;
 using InventoryHold.Domain.Repositories;
 using InventoryHold.WebApi.Workers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -13,16 +14,24 @@ namespace InventoryHold.UnitTests.Application;
 
 public class HoldExpiryWorkerTests
 {
-    private readonly Mock<IHoldRepository>      _holds     = new();
-    private readonly Mock<IInventoryRepository> _inventory = new();
-    private readonly Mock<IInventoryCache>      _cache     = new();
-    private readonly Mock<IHoldEventPublisher>  _events    = new();
+    private readonly Mock<IHoldRepository>      _holds        = new();
+    private readonly Mock<IInventoryRepository> _inventory    = new();
+    private readonly Mock<IInventoryCache>      _cache        = new();
+    private readonly Mock<IHoldEventPublisher>  _events       = new();
+    private readonly Mock<IServiceScopeFactory> _scopeFactory = new();
+    private readonly Mock<IServiceScope>        _scope        = new();
+    private readonly Mock<IServiceProvider>     _sp           = new();
     private readonly HoldExpiryWorker _worker;
 
     public HoldExpiryWorkerTests()
     {
+        _sp.Setup(p => p.GetService(typeof(IHoldRepository))).Returns(_holds.Object);
+        _sp.Setup(p => p.GetService(typeof(IInventoryRepository))).Returns(_inventory.Object);
+        _scope.Setup(s => s.ServiceProvider).Returns(_sp.Object);
+        _scopeFactory.Setup(f => f.CreateScope()).Returns(_scope.Object);
+
         _worker = new HoldExpiryWorker(
-            _holds.Object, _inventory.Object, _cache.Object, _events.Object,
+            _scopeFactory.Object, _cache.Object, _events.Object,
             Options.Create(new HoldSettings { ExpirationMinutes = 15, PollingIntervalSeconds = 30 }),
             Mock.Of<ILogger<HoldExpiryWorker>>());
     }
