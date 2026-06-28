@@ -397,9 +397,150 @@ Zero tests require Docker — all infrastructure mocked via Moq.
 ---
 
 ## Human Audit
-*(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
+
+The following are concrete examples where AI suggestions were accepted or rejected, and the reasoning behind each decision.
+
+### Rejected — Dockerfile user creation commands (Alpine vs Debian)
+
+AI generated `addgroup`/`adduser` for the .NET API Dockerfile:
+```dockerfile
+RUN addgroup --gid 1001 appgroup && adduser --uid 1001 --gid 1001 ...
+```
+**Rejected.** `mcr.microsoft.com/dotnet/aspnet:10.0` is Debian Bookworm, not Alpine. `addgroup`/`adduser` are BusyBox/Alpine commands that don't exist on Debian — the build fails with `/bin/sh: 1: addgroup: not found`. Corrected to:
+```dockerfile
+RUN groupadd --gid 1001 appgroup && useradd --uid 1001 --gid appgroup --no-create-home appuser
+```
+AI was not aware of the base image's Linux distribution at generation time. This required knowing the .NET 10 image lineage.
+
+---
+
+### Rejected — MongoDB replica set member hostname
+
+AI initiated the RS with:
+```js
+rs.initiate({_id:'rs0', members:[{_id:0, host:'localhost:27017'}]})
+```
+**Rejected.** Inside a Docker network, each container's `localhost` is itself. The .NET API container resolving `localhost:27017` connects to itself, not MongoDB. Changed to `host:'mongodb:27017'` (the Docker Compose service name). Also required `?directConnection=true` in the MongoDB URI to skip topology discovery and prevent the driver from re-resolving the member host from `mongodb:` back to `localhost:`. Two-part fix that AI initially missed as a single problem.
+
+---
+
+### Rejected — Healthcheck using `wget`
+
+AI's initial healthcheck in docker-compose:
+```yaml
+test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+```
+**Rejected.** Neither `wget` nor `curl` are pre-installed in `mcr.microsoft.com/dotnet/aspnet:10.0`. The healthcheck exits 127 ("not found") and the container is forever unhealthy. Required adding `apt-get install -y curl` to the Dockerfile and switching to `["CMD", "curl", "-sf", "http://localhost:8080/health"]`. AI assumed a curl-capable environment; actual Debian aspnet images are minimal.
+
+---
+
+### Rejected — `@rolldown/binding-win32-x64-msvc` in hard dependencies
+
+AI left the Windows Vite binding in `dependencies`:
+```json
+"dependencies": { "@rolldown/binding-win32-x64-msvc": "^1.1.3" }
+```
+**Rejected.** npm refuses to install packages whose `os` field doesn't match the current platform. Linux Docker containers fail with `EBADPLATFORM` during `npm ci`. Moved to `optionalDependencies` so Linux containers skip the package without failing the build.
+
+---
+
+### Rejected — Frontend on port 80
+
+AI mapped the frontend service:
+```yaml
+ports: ["80:80"]
+```
+**Rejected.** Windows requires admin elevation to bind to port 80. `docker-compose up` fails with `An attempt was made to access a socket in a way forbidden by its access permissions`. Changed to `3000:80` — host port 3000 has no elevation requirement.
+
+---
+
+### Accepted — `directConnection=true` to bypass RS topology redirect
+
+After diagnosing the MongoDB redirect issue, AI proposed adding `?directConnection=true` to the connection string as an alternative to restructuring the network. **Accepted.** This is the idiomatic .NET MongoDB driver flag for this exact scenario — it instructs the driver to treat the URI host as a direct endpoint and skip topology discovery entirely. Clean one-line fix without any Docker network changes.
+
+---
+
+### Accepted — Separate `vitest.config.ts` instead of triple-slash reference
+
+When `tsc -b` inside Docker produced `TS2769: No overload matches this call` on the `test` property in `vite.config.ts`, AI proposed splitting the config into two files: a clean `vite.config.ts` (build only, no `test` block) and a new `vitest.config.ts` using `import { defineConfig } from 'vitest/config'`. **Accepted.** The root cause is that `/// <reference types="vitest" />` only works when TypeScript loads vitest's type augmentation — which doesn't happen during `tsc -b` in a Docker build where `tsconfig.node.json` lists only `types: ["node"]`. The separate config file imports vitest's own `defineConfig` which natively types `test`, no augmentation needed.
+
+---
+
+### Accepted — Application services in WebApi layer, not Domain layer
+
+The assignment spec suggests `Domain/Services/` for business logic. AI proposed placing `HoldService` and `InventoryService` in `WebApi/Services/` as application-layer services instead. **Accepted.** This keeps the Domain project free of infrastructure dependencies and independently testable. The Domain layer contains only entities, typed exceptions, and repository/messaging interfaces — pure business rules. Application services (orchestration of domain + infrastructure) are a WebApi concern. The trade-off is a mild departure from the spec's folder structure, documented here and in the README.
+
+---
+
+### Accepted — `happy-dom` over `jsdom` for Vitest
+
+AI warned that `jsdom` pulls in `@exodus/bytes` which is ESM-only and breaks Vitest's CJS require path. Proposed `happy-dom` as a drop-in replacement. **Accepted.** The warning proved correct — switching to happy-dom eliminated the module resolution error with no behavioral difference in DOM-related tests.
 
 ---
 
 ## Verification
-*(How AI was used to generate tests and how AI-generated code was validated — to be documented during development)*
+
+### Test generation
+
+Unit tests were generated by AI alongside each implementation phase (TDD order: test first, then implementation). For each component, AI was given:
+- The interface it should test (repository interface, domain entity, service)
+- The exact scenario (happy path, InsufficientStock, HoldNotFound, HoldTerminated, concurrent retry)
+- The Moq setup pattern already established in the project
+
+AI generated test scaffolding including mock setup, `Act`, and `Assert`. Human review validated:
+- Mock method names matched the actual interface (verified by running `dotnet test` — compile errors catch typos)
+- Assert conditions matched the actual domain exception type, not a generic one
+- Edge case tests (concurrent retry exhaustion, write conflict counting) used the exact error code that MongoDB returns
+
+Final count: **82 unit tests, 0 failures, 0 infrastructure dependencies.**
+
+---
+
+### Validation of AI-generated concurrency code
+
+The most critical AI-generated code was the atomic inventory decrement with write-conflict retry in `HoldService`. AI generated the retry loop with `catch (MongoException ex) when (ex.Message.Contains("WriteConflict"))`. This was validated two ways:
+
+1. **Unit test**: `HoldService_RetryExhausted_Returns409` — mocked repository throws `MongoException("WriteConflict")` three consecutive times; asserted `InsufficientStockException` thrown after retry limit. Passed.
+
+2. **Live concurrency test**: Two simultaneous `POST /api/holds` requests for `device-z` (stock: 10), each requesting qty 7. Expected: one 201, one 409 with `available: 3`. Result: exactly that — atomic transition confirmed, no double-decrement, `available` accurately reflects post-first-hold stock.
+
+---
+
+### Validation of background worker expiry
+
+AI generated `HoldExpiryWorker` — a `BackgroundService` that polls MongoDB every 30 seconds and uses `FindOneAndUpdate` with `{ status: Active, expiresAt ≤ now }` to atomically transition holds. Validated end-to-end:
+
+1. Created hold with `ExpirationMinutes: 1`
+2. Waited 95 seconds (TTL + worst-case poll window + buffer)
+3. `GET /api/holds/{id}` → `status: "Expired"`, `expiredAt` populated
+4. `DELETE /api/holds/{id}` → 410 Gone with `data.at = expiredAt`
+5. `GET /api/inventory` → `heldQuantity: 0` (inventory fully restored by worker)
+
+Worker latency observed: 24 seconds after `expiresAt` — within the 30-second poll window.
+
+---
+
+### Docker stack validation
+
+After each infrastructure change, `docker-compose up --build` was run from a cold state and all 5 services verified healthy:
+- mongodb: healthcheck runs `rs.status()` / `rs.initiate()` — confirmed RS member is `mongodb:27017`
+- redis: `redis-cli ping` → PONG
+- rabbitmq: `rabbitmq-diagnostics ping` → management UI reachable at :15672
+- api: `curl -sf http://localhost:8080/health` → `{"status":"Healthy"}`
+- frontend: nginx serves SPA at :3000, proxies `/api/*` to `api:8080`
+
+Total Docker build failures diagnosed and fixed: **6** (addgroup/useradd, EBADPLATFORM, TS2769, MongoDB localhost redirect, wget missing, port 80 elevation). All fixes verified by re-running `docker-compose up --build` to a clean healthy state.
+
+---
+
+### RabbitMQ event verification
+
+AI generated event payloads for `HoldCreated`, `HoldReleased`, `HoldExpired`. Validated via RabbitMQ Management API (`GET /api/queues`):
+
+| Queue | Messages after full QA run |
+|-------|---------------------------|
+| hold.created.queue | 7 |
+| hold.released.queue | 1 |
+| hold.expired.queue | 2 |
+
+Counts match the number of create/release/expire operations performed during QA — no missing events, no duplicate publishes.
