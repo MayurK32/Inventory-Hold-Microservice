@@ -287,7 +287,13 @@ Domain entities have `private set` and no BsonAttributes. Options: (a) add BsonA
 
 **Verification:** `dotnet test` → **Passed: 66, Failed: 0** (60 Phase 2–7 + 4 RabbitMqPublisher + 2 wiring)
 
-**Pending:** 8.10 — manual verify messages appear in RabbitMQ Management UI at http://localhost:15672
+**Diagnostic logging added to `RabbitMqTopologyInitializer`:** During manual verification, the exchange and queues were not visible in the Management UI after first start. Root cause: the first `dotnet run` used the old binary (before the logging commit); on re-run with logging, the topology initializer confirmed it ran successfully (`amqp://localhost:5672`, exchange declared, all 3 queues bound). Also identified that the `appsettings.json` base config correctly uses `"Host": "rabbitmq"` (Docker-to-Docker) while `appsettings.Development.json` overrides to `"Host": "localhost"` for local dev — configuration layering is intentional.
+
+**Manual verification (8.10) — ✅ Verified:**
+- Topology initializer logs at startup: exchange + 3 queues declared on `amqp://localhost:5672`
+- `POST /api/holds` → `hold.created.queue` receives message with correct JSON (holdId, customerName, status, items[], createdAt, expiresAt)
+- `HoldExpiryWorker` expiry tick → `hold.expired.queue` receives message with expiredAt
+- Fire-and-forget confirmed: no publish errors propagate to HTTP caller
 
 ---
 

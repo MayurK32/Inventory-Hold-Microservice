@@ -359,3 +359,18 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
 - `dotnet test` → **Passed: 54, Failed: 0** (43 Phase 2–5 + 11 Phase 6)
 
 *(Additional prompts will be logged here as the session progresses)*
+
+---
+
+### PROMPT-023
+**Phase:** Verification — Phase 8 Manual Testing
+**Tool:** Claude Code (Read + Edit — diagnostic logging)
+**Purpose:** Diagnose why RabbitMQ exchange and queues were not appearing in the Management UI after Phase 8 implementation.
+**Prompt Summary:**
+> "I am not able to see rabbitmq queue in management ui" / "restarted api no channel, no exchange no queue"
+**Outcome:**
+- Root cause identified: first `dotnet run` used old binary before the diagnostic logging edit was compiled in
+- Added `ILogger<RabbitMqTopologyInitializer>` to `RabbitMqTopologyInitializer` with per-step log messages and a try/catch that re-throws — now logs endpoint, channel open, exchange declare, each queue declare/bind, and completion
+- Second `dotnet run` confirmed: `amqp://localhost:5672`, exchange declared, 3 queues declared and bound — topology init complete
+- Key insight documented: `appsettings.json` uses `"Host": "rabbitmq"` (Docker service name for container-to-container), `appsettings.Development.json` overrides to `"Host": "localhost"` for local dev — this layering is intentional and correct
+- Phase 8 manual verification complete: messages confirmed in `hold.created.queue` and `hold.expired.queue`

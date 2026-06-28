@@ -291,7 +291,7 @@
   - `HoldService.ReleaseHoldAsync` → `PublishHoldReleasedAsync` (after cache invalidation, fire-and-forget)
   - `HoldExpiryWorker` already had `PublishHoldExpiredAsync` — no change needed
 - ✅ **8.9** `[TEST]` `FireAndForget` test included in `RabbitMqPublisherTests` + wiring tests in `CreateHoldServiceTests` and `ReleaseHoldServiceTests`
-- ⬜ **8.10** Verify: create hold → RabbitMQ Management UI (`:15672`) → `hold.created.queue` has 1 message with correct JSON
+- ✅ **8.10** Verify: create hold → RabbitMQ Management UI (`:15672`) → `hold.created.queue` has 1 message with correct JSON
 
 ---
 
@@ -530,7 +530,7 @@
 | 5 | Background worker (TDD) | ⬜ |
 | 6 | GET + DELETE endpoints (TDD) | ⬜ |
 | 7 | Inventory + Reset (TDD) | ⬜ |
-| 8 | RabbitMQ publisher (TDD) | ⬜ |
+| 8 | RabbitMQ publisher (TDD) | ✅ |
 | 9 | Redis caching (TDD) | ⬜ |
 | 10 | Health checks + Swagger | ⬜ |
 | 11 | Unit test suite complete | ⬜ |
