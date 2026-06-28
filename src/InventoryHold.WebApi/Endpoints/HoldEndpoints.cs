@@ -20,6 +20,7 @@ public static class HoldEndpoints
             return Results.Created($"/api/holds/{hold.Id}", ToResponse(hold));
         })
         .WithName("CreateHold")
+        .WithSummary("Create an inventory hold")
         .Produces<HoldResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
@@ -28,12 +29,14 @@ public static class HoldEndpoints
         group.MapGet("/{holdId}", async (string holdId, HoldService service, CancellationToken ct) =>
             Results.Ok(ToResponse(await service.GetHoldAsync(holdId, ct))))
         .WithName("GetHold")
+        .WithSummary("Get a hold by ID")
         .Produces<HoldResponse>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{holdId}", async (string holdId, HoldService service, CancellationToken ct) =>
             Results.Ok(ToResponse(await service.ReleaseHoldAsync(holdId, ct))))
         .WithName("ReleaseHold")
+        .WithSummary("Release an active hold and restore inventory")
         .Produces<HoldResponse>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status410Gone);
@@ -48,6 +51,7 @@ public static class HoldEndpoints
                 items.Select(ToResponse).ToList(), total, page, pageSize, totalPages));
         })
         .WithName("ListHolds")
+        .WithSummary("List holds with optional status filter and pagination")
         .Produces<PagedResponse<HoldResponse>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
     }

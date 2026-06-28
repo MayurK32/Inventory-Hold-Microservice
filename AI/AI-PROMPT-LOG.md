@@ -392,4 +392,24 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
 - `CreateHoldServiceTests.cs`: 2 new tests — `CreateHoldAsync_Success_InvalidatesInventoryCache` and `CreateHoldAsync_ExpirationMinutesCached_SkipsSettingsRepository`
 - `Program.cs` updated: `IConnectionMultiplexer` singleton registered via `ConnectionMultiplexer.Connect`; `RedisCacheService` replaces `NullInventoryCache`
 - `dotnet test` → **Passed: 79, Failed: 0** (66 Phase 2–8 + 11 RedisCacheService + 2 CreateHold cache)
-- **Non-obvious fix:** `StackExchange.Redis 3.0.x` changed `StringSetAsync` signature — `TimeSpan? expiry` + `bool keepTtl` (v2 style, 6 params) replaced by a new `Expiration` struct (v3 style, 5 params). Moq `Callback<..., TimeSpan?, bool, ...>` silently did not fire because the overload didn't match. Resolved by using `_db.Invocations` to inspect captured arguments directly and casting `Arguments[2]` to `Expiration` for TTL assertions.
+- **Non-obvious fix:** `StackExchange.Redis 3.0.x` changed `StringSetAsync` signature — `TimeSpan? expiry` + `bool keepTtl` (v2 style, 6 params) replaced by a new `Expiration` struct (v3 style, 5 params). Moq `Callback<..., TimeSpan?, bool, ...>` silently failed because the overload didn't match. Resolved via `_db.Invocations` to read actual arguments post-call, casting `Arguments[2]` as `Expiration` for TTL assertion.
+
+---
+
+## Session 10 — 2026-06-28: Phase 10 Health Checks + Phase 11 Test Suite
+
+### PROMPT-025
+**Phase:** Implementation — Phase 10 + 11 (Health Checks, Swagger annotations, test verification)
+**Tool:** Claude Code (Write + Edit + Bash)
+**Purpose:** Replace stub `/health` endpoint with real ASP.NET Core health checks for MongoDB, Redis, and RabbitMQ. Add `WithSummary` to all endpoints. Verify Phase 11 mandatory test scenarios.
+**Prompt Summary:**
+> "plan phase 10, 11 together" → plan approved → implementation proceeded
+**Outcome:**
+- `RabbitMqHealthCheck.cs` created in `WebApi/HealthChecks/` — checks `IConnection.IsOpen`; try/catch returns `Unhealthy` on exception
+- `RabbitMqHealthCheckTests.cs` created (3 tests): IsOpen→Healthy, IsClosed→Unhealthy, Exception→Unhealthy with exception captured
+- `Program.cs` updated: `AddHealthChecks()` with `.AddMongoDb(sp => ...)`, `.AddRedis(sp => ...)`, `.AddCheck<RabbitMqHealthCheck>(...)` using DI-resolved singletons
+- `/health` stub replaced with `MapHealthChecks` — response is `{"status":"Healthy"}` when all pass; adds `"checks":{...}` detail only when unhealthy
+- All 6 endpoints annotated with `WithSummary`
+- `dotnet test` → **Passed: 82, Failed: 0**
+- **Phase 11 verified:** All 5 mandatory scenarios covered by named tests; 0 tests require Docker
+- **Non-obvious fix:** `AddMongoDb(connectionString, tags: [...])` throws in `AspNetCore.HealthChecks.MongoDb` v9 — second param is `Func<IServiceProvider, IMongoClient>?`, not tags. Fixed by using factory overload `AddMongoDb(sp => sp.GetRequiredService<IMongoClient>())` and same for Redis. — `TimeSpan? expiry` + `bool keepTtl` (v2 style, 6 params) replaced by a new `Expiration` struct (v3 style, 5 params). Moq `Callback<..., TimeSpan?, bool, ...>` silently did not fire because the overload didn't match. Resolved by using `_db.Invocations` to inspect captured arguments directly and casting `Arguments[2]` to `Expiration` for TTL assertions.

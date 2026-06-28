@@ -323,6 +323,35 @@ Domain entities have `private set` and no BsonAttributes. Options: (a) add BsonA
 
 ---
 
+## Phase 10 — Health Checks + Swagger Annotations
+
+**Files created:** `WebApi/HealthChecks/RabbitMqHealthCheck.cs`, `UnitTests/Infrastructure/RabbitMqHealthCheckTests.cs`
+**Files modified:** `WebApi/Program.cs`, `WebApi/Endpoints/HoldEndpoints.cs`, `WebApi/Endpoints/InventoryEndpoints.cs`
+
+**Key design decisions:**
+- `RabbitMqHealthCheck` uses `IConnection.IsOpen` — lightweight, no network round-trip, consistent with how the RabbitMQ client exposes connection state
+- Response writer: `{"status":"Healthy"}` when all pass; only adds `"checks":{...}` detail when degraded/unhealthy — keeps the happy-path response minimal for monitoring systems
+- MongoDB and Redis health checks use factory overload (`sp => sp.GetRequiredService<T>()`) to reuse the already-registered singletons — avoids a second connection
+- `AddMongoDb(connectionString, tags)` fails in v9 — second param is `Func<IServiceProvider, IMongoClient>?`, not tags; factory overload is the correct approach
+
+**Verification:** `dotnet test` → **Passed: 82, Failed: 0**
+
+## Phase 11 — Test Suite Verification
+
+All 5 mandatory scenarios confirmed covered:
+
+| Scenario | Test method |
+|----------|------------|
+| Validation → 422 | `CreateHoldAsync_EmptyItems_ThrowsDomainException` |
+| Happy path → 201 | `CreateHoldAsync_AllInStock_ReturnsHoldWithDenormalizedProductName` |
+| Insufficient stock → 409 | `CreateHoldAsync_InsufficientStock_ThrowsWithAllFailures` |
+| Write conflict retry | `CreateHoldAsync_WriteConflict_RetriesThreeTimesAndThrows` |
+| Race condition | `ProcessExpiredHoldsAsync` race condition test |
+
+Zero tests require Docker — all infrastructure mocked via Moq.
+
+---
+
 ## Human Audit
 *(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
 

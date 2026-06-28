@@ -11,12 +11,16 @@ using InventoryHold.WebApi.Middleware;
 using InventoryHold.WebApi.Services;
 using InventoryHold.Infrastructure.Caching;
 using InventoryHold.Infrastructure.Messaging;
+using InventoryHold.WebApi.HealthChecks;
 using InventoryHold.WebApi.Stubs;
 using StackExchange.Redis;
 using RabbitMQ.Client;
 using InventoryHold.WebApi.Workers;
 using MongoDB.Driver;
 using Scalar.AspNetCore;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,7 +65,11 @@ builder.Services.AddSingleton<IConnection>(_ =>
 builder.Services.AddSingleton<RabbitMqTopologyInitializer>();
 builder.Services.AddSingleton<IHoldEventPublisher, RabbitMqHoldEventPublisher>();
 builder.Services.AddHostedService<HoldExpiryWorker>();
-// TODO Phase 10: Health checks — MongoDB, Redis, RabbitMQ
+// Phase 10: Health checks
+builder.Services.AddHealthChecks()
+    .AddMongoDb(sp => sp.GetRequiredService<IMongoClient>(), tags: ["mongodb"])
+    .AddRedis(sp => sp.GetRequiredService<IConnectionMultiplexer>(), tags: ["redis"])
+    .AddCheck<RabbitMqHealthCheck>("rabbitmq", tags: ["rabbitmq"]);
 
 // Phase 4: exception handler + hold service
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
@@ -89,8 +97,21 @@ app.MapScalarApiReference();
 app.MapHoldEndpoints();
 app.MapInventoryEndpoints();
 
-// Temp health stub — replaced with real checks in Phase 10
-app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }))
-   .ExcludeFromDescription();
+// Phase 10: Health endpoint
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (ctx, report) =>
+    {
+        ctx.Response.ContentType = "application/json";
+        object result = report.Status == HealthStatus.Healthy
+            ? new { status = "Healthy" }
+            : new
+            {
+                status = report.Status.ToString(),
+                checks = report.Entries.ToDictionary(e => e.Key, e => e.Value.Status.ToString())
+            };
+        await ctx.Response.WriteAsync(JsonSerializer.Serialize(result));
+    }
+}).ExcludeFromDescription();
 
 app.Run();

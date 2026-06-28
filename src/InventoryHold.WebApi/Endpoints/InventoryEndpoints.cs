@@ -13,11 +13,13 @@ public static class InventoryEndpoints
         group.MapGet("/", async (InventoryService service, CancellationToken ct) =>
             Results.Ok((await service.GetInventoryAsync(ct)).Select(ToResponse).ToList()))
         .WithName("GetInventory")
+        .WithSummary("Get current inventory levels for all products")
         .Produces<List<InventoryItemResponse>>(StatusCodes.Status200OK);
 
         group.MapPost("/reset", async (InventoryService service, CancellationToken ct) =>
             Results.Ok((await service.ResetInventoryAsync(ct)).Select(ToResponse).ToList()))
         .WithName("ResetInventory")
+        .WithSummary("Delete all holds and restore inventory to seed quantities")
         .Produces<List<InventoryItemResponse>>(StatusCodes.Status200OK);
     }
 
