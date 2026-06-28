@@ -30,41 +30,50 @@ public sealed class MongoInventoryRepository(IMongoCollection<InventoryDocument>
         return doc?.ToDomain();
     }
 
+    public async Task<IReadOnlyList<InventoryItem>> GetByProductIdsAsync(
+        IEnumerable<string> productIds, CancellationToken ct = default)
+    {
+        var filter = Builders<InventoryDocument>.Filter.In(i => i.ProductId, productIds);
+        var cursor = await collection.FindAsync(filter, cancellationToken: ct);
+        var docs = await cursor.ToListAsync(ct);
+        return docs.Select(d => d.ToDomain()).ToList();
+    }
+
     public async Task DecrementBatchAsync(
         IReadOnlyList<HoldItem> items, IMongoTransaction transaction, CancellationToken ct = default)
     {
+        var writes = items.Select(item => new UpdateOneModel<InventoryDocument>(
+            Builders<InventoryDocument>.Filter.Eq(i => i.ProductId, item.ProductId),
+            Builders<InventoryDocument>.Update.Inc(i => i.AvailableQuantity, -item.Quantity))
+        ).ToList<WriteModel<InventoryDocument>>();
+
         var session = GetSession(transaction);
-        foreach (var item in items)
-        {
-            var filter = Builders<InventoryDocument>.Filter.Eq(i => i.ProductId, item.ProductId);
-            var update = Builders<InventoryDocument>.Update.Inc(i => i.AvailableQuantity, -item.Quantity);
-            if (session is not null)
-                await collection.UpdateOneAsync(session, filter, update, cancellationToken: ct);
-            else
-                await collection.UpdateOneAsync(filter, update, cancellationToken: ct);
-        }
+        var opts = new BulkWriteOptions { IsOrdered = false };
+        if (session is not null)
+            await collection.BulkWriteAsync(session, writes, opts, ct);
+        else
+            await collection.BulkWriteAsync(writes, opts, ct);
     }
 
     public async Task IncrementAsync(IReadOnlyList<HoldItem> items, CancellationToken ct = default)
     {
-        foreach (var item in items)
-        {
-            await collection.UpdateOneAsync(
-                Builders<InventoryDocument>.Filter.Eq(i => i.ProductId, item.ProductId),
-                Builders<InventoryDocument>.Update.Inc(i => i.AvailableQuantity, item.Quantity),
-                cancellationToken: ct);
-        }
+        var writes = items.Select(item => new UpdateOneModel<InventoryDocument>(
+            Builders<InventoryDocument>.Filter.Eq(i => i.ProductId, item.ProductId),
+            Builders<InventoryDocument>.Update.Inc(i => i.AvailableQuantity, item.Quantity))
+        ).ToList<WriteModel<InventoryDocument>>();
+
+        await collection.BulkWriteAsync(writes, new BulkWriteOptions { IsOrdered = false }, ct);
     }
 
     public async Task ResetAllAsync(CancellationToken ct = default)
     {
         var all = await GetAllAsync(ct);
-        foreach (var item in all)
-        {
-            await collection.UpdateOneAsync(
-                Builders<InventoryDocument>.Filter.Eq(i => i.ProductId, item.ProductId),
-                Builders<InventoryDocument>.Update.Set(i => i.AvailableQuantity, item.TotalQuantity),
-                cancellationToken: ct);
-        }
+        var writes = all.Select(item => new UpdateOneModel<InventoryDocument>(
+            Builders<InventoryDocument>.Filter.Eq(i => i.ProductId, item.ProductId),
+            Builders<InventoryDocument>.Update.Set(i => i.AvailableQuantity, item.TotalQuantity))
+        ).ToList<WriteModel<InventoryDocument>>();
+
+        if (writes.Count > 0)
+            await collection.BulkWriteAsync(writes, new BulkWriteOptions { IsOrdered = false }, ct);
     }
 }

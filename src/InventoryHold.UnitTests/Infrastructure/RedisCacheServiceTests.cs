@@ -175,14 +175,15 @@ public class RedisCacheServiceTests
     // ── Flush ──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task FlushAllAsync_DeletesStaticKeys()
+    public async Task FlushAllAsync_DeletesStaticKeysBatch()
     {
-        _db.Setup(d => d.KeyDeleteAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
-           .ReturnsAsync(true);
+        _db.Setup(d => d.KeyDeleteAsync(It.IsAny<RedisKey[]>(), It.IsAny<CommandFlags>()))
+           .ReturnsAsync(2L);
 
         await _cache.FlushAllAsync();
 
-        _db.Verify(d => d.KeyDeleteAsync("inventory:all", CommandFlags.None), Times.Once);
-        _db.Verify(d => d.KeyDeleteAsync("settings:expiration-minutes", CommandFlags.None), Times.Once);
+        _db.Verify(d => d.KeyDeleteAsync(
+            It.Is<RedisKey[]>(keys => keys.Length == 2),
+            CommandFlags.None), Times.Once);
     }
 }

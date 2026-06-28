@@ -54,7 +54,7 @@ public class CreateHoldServiceTests
     [Fact]
     public async Task CreateHoldAsync_AllInStock_ReturnsHoldWithDenormalizedProductName()
     {
-        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default)).ReturnsAsync(WidgetA);
+        _inventory.Setup(r => r.GetByProductIdsAsync(It.IsAny<IEnumerable<string>>(), default)).ReturnsAsync(new List<InventoryItem> { WidgetA });
         _holds.Setup(r => r.InsertAsync(It.IsAny<Hold>(), _tx.Object, default))
               .ReturnsAsync((Hold h, IMongoTransaction? _, CancellationToken _) => h);
 
@@ -88,13 +88,23 @@ public class CreateHoldServiceTests
         _txFactory.Verify(f => f.BeginAsync(default), Times.Never);
     }
 
+    [Fact]
+    public async Task CreateHoldAsync_TooManyItems_ThrowsDomainException()
+    {
+        var items = Enumerable.Range(0, 51).Select(i => new CreateHoldItemRequest($"p{i}", 1)).ToList();
+        await FluentActions.Invoking(() => _service.CreateHoldAsync(new(null, items), default))
+            .Should().ThrowAsync<DomainException>()
+            .WithMessage("*50*");
+        _txFactory.Verify(f => f.BeginAsync(default), Times.Never);
+    }
+
     // Stock errors
 
     [Fact]
     public async Task CreateHoldAsync_ProductNotFound_ThrowsProductNotFoundException()
     {
-        _inventory.Setup(r => r.GetByProductIdAsync("unknown", default))
-                  .ReturnsAsync((InventoryItem?)null);
+        _inventory.Setup(r => r.GetByProductIdsAsync(It.IsAny<IEnumerable<string>>(), default))
+                  .ReturnsAsync(new List<InventoryItem>());
         await FluentActions.Invoking(() =>
             _service.CreateHoldAsync(new(null, [new("unknown", 1)]), default))
             .Should().ThrowAsync<ProductNotFoundException>();
@@ -103,8 +113,8 @@ public class CreateHoldServiceTests
     [Fact]
     public async Task CreateHoldAsync_InsufficientStock_ThrowsWithAllFailures()
     {
-        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default))
-                  .ReturnsAsync(new InventoryItem { ProductId = "widget-a", Name = "Widget A", TotalQuantity = 50, AvailableQuantity = 1 });
+        _inventory.Setup(r => r.GetByProductIdsAsync(It.IsAny<IEnumerable<string>>(), default))
+                  .ReturnsAsync(new List<InventoryItem> { new() { ProductId = "widget-a", Name = "Widget A", TotalQuantity = 50, AvailableQuantity = 1 } });
 
         var ex = await FluentActions.Invoking(() =>
             _service.CreateHoldAsync(new(null, [new("widget-a", 5)]), default))
@@ -119,8 +129,8 @@ public class CreateHoldServiceTests
     [Fact]
     public async Task CreateHoldAsync_InsufficientStock_NeverDecrementsInventory()
     {
-        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default))
-                  .ReturnsAsync(new InventoryItem { ProductId = "widget-a", Name = "Widget A", TotalQuantity = 50, AvailableQuantity = 1 });
+        _inventory.Setup(r => r.GetByProductIdsAsync(It.IsAny<IEnumerable<string>>(), default))
+                  .ReturnsAsync(new List<InventoryItem> { new() { ProductId = "widget-a", Name = "Widget A", TotalQuantity = 50, AvailableQuantity = 1 } });
 
         await Assert.ThrowsAsync<InsufficientStockException>(() =>
             _service.CreateHoldAsync(new(null, [new("widget-a", 5)]), default));
@@ -135,7 +145,7 @@ public class CreateHoldServiceTests
     [Fact]
     public async Task CreateHoldAsync_Success_PublishesHoldCreatedEvent()
     {
-        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default)).ReturnsAsync(WidgetA);
+        _inventory.Setup(r => r.GetByProductIdsAsync(It.IsAny<IEnumerable<string>>(), default)).ReturnsAsync(new List<InventoryItem> { WidgetA });
         _holds.Setup(r => r.InsertAsync(It.IsAny<Hold>(), _tx.Object, default))
               .ReturnsAsync((Hold h, IMongoTransaction? _, CancellationToken _) => h);
 
@@ -149,7 +159,7 @@ public class CreateHoldServiceTests
     [Fact]
     public async Task CreateHoldAsync_Success_InvalidatesInventoryCache()
     {
-        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default)).ReturnsAsync(WidgetA);
+        _inventory.Setup(r => r.GetByProductIdsAsync(It.IsAny<IEnumerable<string>>(), default)).ReturnsAsync(new List<InventoryItem> { WidgetA });
         _holds.Setup(r => r.InsertAsync(It.IsAny<Hold>(), _tx.Object, default))
               .ReturnsAsync((Hold h, IMongoTransaction? _, CancellationToken _) => h);
 
@@ -162,7 +172,7 @@ public class CreateHoldServiceTests
     public async Task CreateHoldAsync_ExpirationMinutesCached_SkipsSettingsRepository()
     {
         _cache.Setup(c => c.GetExpirationMinutesAsync(default)).ReturnsAsync(15);
-        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default)).ReturnsAsync(WidgetA);
+        _inventory.Setup(r => r.GetByProductIdsAsync(It.IsAny<IEnumerable<string>>(), default)).ReturnsAsync(new List<InventoryItem> { WidgetA });
         _holds.Setup(r => r.InsertAsync(It.IsAny<Hold>(), _tx.Object, default))
               .ReturnsAsync((Hold h, IMongoTransaction? _, CancellationToken _) => h);
 
@@ -176,7 +186,7 @@ public class CreateHoldServiceTests
     [Fact]
     public async Task CreateHoldAsync_WriteConflict_RetriesThreeTimesAndThrows()
     {
-        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default)).ReturnsAsync(WidgetA);
+        _inventory.Setup(r => r.GetByProductIdsAsync(It.IsAny<IEnumerable<string>>(), default)).ReturnsAsync(new List<InventoryItem> { WidgetA });
         _inventory.Setup(r => r.DecrementBatchAsync(
             It.IsAny<IReadOnlyList<HoldItem>>(), It.IsAny<IMongoTransaction>(), default))
             .ThrowsAsync(MakeWriteConflict());
@@ -193,7 +203,7 @@ public class CreateHoldServiceTests
     [Fact]
     public async Task CreateHoldAsync_NonConflictException_DoesNotRetry()
     {
-        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default)).ReturnsAsync(WidgetA);
+        _inventory.Setup(r => r.GetByProductIdsAsync(It.IsAny<IEnumerable<string>>(), default)).ReturnsAsync(new List<InventoryItem> { WidgetA });
         _inventory.Setup(r => r.DecrementBatchAsync(
             It.IsAny<IReadOnlyList<HoldItem>>(), It.IsAny<IMongoTransaction>(), default))
             .ThrowsAsync(new InvalidOperationException("not a conflict"));

@@ -15,7 +15,7 @@ public class GetInventoryServiceTests
 
     public GetInventoryServiceTests()
     {
-        _service = new InventoryService(_inventory.Object, Mock.Of<IHoldRepository>(), _cache.Object);
+        _service = new InventoryService(_inventory.Object, Mock.Of<IHoldRepository>(), _cache.Object, Microsoft.Extensions.Logging.Abstractions.NullLogger<InventoryService>.Instance);
     }
 
     private static IReadOnlyList<InventoryItem> MakeItems() =>
@@ -55,5 +55,21 @@ public class GetInventoryServiceTests
         var result = await _service.GetInventoryAsync();
 
         result[0].HeldQuantity.Should().Be(10);
+    }
+
+    [Fact]
+    public async Task GetInventoryAsync_ConcurrentCacheMiss_FetchesDbOnlyOnce()
+    {
+        var items = MakeItems();
+        // call 1: task1 pre-lock miss; call 2: task1 post-lock miss; call 3: task2 pre-lock hit (populated by task1)
+        _cache.SetupSequence(c => c.GetInventoryAsync(default))
+              .ReturnsAsync((IReadOnlyList<InventoryItem>?)null)
+              .ReturnsAsync((IReadOnlyList<InventoryItem>?)null)
+              .ReturnsAsync(items);
+        _inventory.Setup(r => r.GetAllAsync(default)).ReturnsAsync(items);
+
+        await Task.WhenAll(_service.GetInventoryAsync(), _service.GetInventoryAsync());
+
+        _inventory.Verify(r => r.GetAllAsync(default), Times.Once);
     }
 }

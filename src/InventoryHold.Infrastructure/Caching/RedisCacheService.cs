@@ -76,8 +76,7 @@ public sealed class RedisCacheService(IConnectionMultiplexer multiplexer) : IInv
 
     public async Task FlushAllAsync(CancellationToken ct = default)
     {
-        await _db.KeyDeleteAsync(InventoryKey);
-        await _db.KeyDeleteAsync(SettingsKey);
+        await _db.KeyDeleteAsync(new RedisKey[] { InventoryKey, SettingsKey });
         // Individual hold keys expire via their 60s TTL
     }
 }

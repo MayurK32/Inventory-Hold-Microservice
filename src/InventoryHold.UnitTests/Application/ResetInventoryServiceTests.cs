@@ -16,7 +16,7 @@ public class ResetInventoryServiceTests
 
     public ResetInventoryServiceTests()
     {
-        _service = new InventoryService(_inventory.Object, _holds.Object, _cache.Object);
+        _service = new InventoryService(_inventory.Object, _holds.Object, _cache.Object, Microsoft.Extensions.Logging.Abstractions.NullLogger<InventoryService>.Instance);
     }
 
     private static IReadOnlyList<InventoryItem> FreshItems() =>

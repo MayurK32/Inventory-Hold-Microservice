@@ -9,6 +9,8 @@ public interface IHoldRepository
     Task<(IReadOnlyList<Hold> Items, long Total)> GetPagedAsync(string? status, int page, int pageSize, CancellationToken ct = default);
     Task<Hold> InsertAsync(Hold hold, IMongoTransaction? transaction = null, CancellationToken ct = default);
     Task<Hold?> AtomicTransitionAsync(string holdId, HoldStatus expectedStatus, HoldStatus newStatus, DateTime transitionTime, CancellationToken ct = default);
+    Task<(IReadOnlyList<Hold> Items, string? NextCursor)> GetPagedByCursorAsync(
+        string? status, string? cursor, int pageSize, CancellationToken ct = default);
     Task<IReadOnlyList<Hold>> GetExpiredActiveAsync(DateTime asOf, CancellationToken ct = default);
     Task DeleteAllAsync(CancellationToken ct = default);
 }

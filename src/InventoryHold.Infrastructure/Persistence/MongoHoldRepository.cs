@@ -29,7 +29,9 @@ public sealed class MongoHoldRepository(IMongoCollection<HoldDocument> collectio
             : Builders<HoldDocument>.Filter.Eq(h => h.Status,
                 Enum.Parse<HoldStatus>(status, ignoreCase: true));
 
-        var total = await collection.CountDocumentsAsync(filter, cancellationToken: ct);
+        var total = filter == FilterDefinition<HoldDocument>.Empty
+            ? await collection.EstimatedDocumentCountAsync(cancellationToken: ct)
+            : await collection.CountDocumentsAsync(filter, cancellationToken: ct);
 
         var cursor = await collection.FindAsync(filter, new FindOptions<HoldDocument>
         {
@@ -77,13 +79,48 @@ public sealed class MongoHoldRepository(IMongoCollection<HoldDocument> collectio
         return result?.ToDomain();
     }
 
+    public async Task<(IReadOnlyList<Hold> Items, string? NextCursor)> GetPagedByCursorAsync(
+        string? status, string? cursor, int pageSize, CancellationToken ct = default)
+    {
+        var filters = new List<FilterDefinition<HoldDocument>>();
+        if (status is not null)
+            filters.Add(Builders<HoldDocument>.Filter.Eq(h => h.Status,
+                Enum.Parse<HoldStatus>(status, ignoreCase: true)));
+        if (cursor is not null)
+        {
+            var cursorDate = DateTime.Parse(cursor.Split('|')[0], null,
+                System.Globalization.DateTimeStyles.RoundtripKind);
+            filters.Add(Builders<HoldDocument>.Filter.Lt(h => h.CreatedAt, cursorDate));
+        }
+
+        var filter = filters.Count > 0
+            ? Builders<HoldDocument>.Filter.And(filters)
+            : FilterDefinition<HoldDocument>.Empty;
+
+        var findOpts = new FindOptions<HoldDocument>
+        {
+            Sort = Builders<HoldDocument>.Sort.Descending(h => h.CreatedAt),
+            Limit = pageSize + 1
+        };
+
+        var docs = await (await collection.FindAsync(filter, findOpts, ct)).ToListAsync(ct);
+        var hasMore = docs.Count > pageSize;
+        if (hasMore) docs.RemoveAt(docs.Count - 1);
+
+        var items = docs.Select(d => d.ToDomain()).ToList();
+        var nextCursor = hasMore ? $"{docs[^1].CreatedAt:O}|{docs[^1].Id}" : null;
+
+        return (items, nextCursor);
+    }
+
     public async Task<IReadOnlyList<Hold>> GetExpiredActiveAsync(DateTime asOf, CancellationToken ct = default)
     {
         var filter = Builders<HoldDocument>.Filter.And(
             Builders<HoldDocument>.Filter.Eq(h => h.Status, HoldStatus.Active),
             Builders<HoldDocument>.Filter.Lte(h => h.ExpiresAt, asOf));
 
-        var cursor = await collection.FindAsync(filter, cancellationToken: ct);
+        var cursor = await collection.FindAsync(filter,
+            new FindOptions<HoldDocument> { Limit = 500 }, ct);
         var docs = await cursor.ToListAsync(ct);
         return docs.Select(d => d.ToDomain()).ToList();
     }

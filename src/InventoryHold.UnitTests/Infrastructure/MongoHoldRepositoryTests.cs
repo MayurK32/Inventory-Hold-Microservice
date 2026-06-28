@@ -76,9 +76,8 @@ public class MongoHoldRepositoryTests
     public async Task GetPagedAsync_ReturnsItemsAndCorrectTotal()
     {
         var docs = new[] { SampleHoldDocument("h1"), SampleHoldDocument("h2") };
-        _collection.Setup(c => c.CountDocumentsAsync(
-            It.IsAny<FilterDefinition<HoldDocument>>(),
-            It.IsAny<CountOptions>(),
+        _collection.Setup(c => c.EstimatedDocumentCountAsync(
+            It.IsAny<EstimatedDocumentCountOptions>(),
             It.IsAny<CancellationToken>()))
             .ReturnsAsync(10);
         _collection.Setup(c => c.FindAsync(

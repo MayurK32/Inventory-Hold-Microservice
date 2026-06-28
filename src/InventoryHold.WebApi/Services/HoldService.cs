@@ -30,6 +30,9 @@ public sealed class HoldService(
             if (item.Quantity <= 0)
                 throw new DomainException($"Quantity for '{item.ProductId}' must be at least 1.");
 
+        if (request.Items.Count > 50)
+            throw new DomainException("Hold cannot contain more than 50 items.");
+
         logger.LogInformation("Creating hold for {CustomerName} with {ItemCount} items",
             request.CustomerName, request.Items.Count);
 
@@ -118,6 +121,14 @@ public sealed class HoldService(
         return await holdRepository.GetPagedAsync(status, page, pageSize, ct);
     }
 
+    public async Task<(IReadOnlyList<Hold> Items, string? NextCursor)> ListHoldsByCursorAsync(
+        string? status, string? cursor, int pageSize, CancellationToken ct = default)
+    {
+        if (pageSize > 100) throw new DomainException("pageSize cannot exceed 100.");
+        if (pageSize < 1)   throw new DomainException("pageSize must be at least 1.");
+        return await holdRepository.GetPagedByCursorAsync(status, cursor, pageSize, ct);
+    }
+
     // Message check first: if e.Code throws internally, the filter would silently evaluate to false.
     // Code 112 = WriteConflict; message check covers Driver 3.x where Code may be inaccessible.
     private static bool IsWriteConflict(MongoCommandException e) =>
@@ -129,13 +140,17 @@ public sealed class HoldService(
         await using var tx = await transactionFactory.BeginAsync(ct);
         try
         {
+            var productIds = request.Items.Select(i => i.ProductId).ToList();
+            var inventoryMap = (await inventoryRepository.GetByProductIdsAsync(productIds, ct))
+                .ToDictionary(i => i.ProductId);
+
             var failures = new List<StockFailure>();
             var holdItems = new List<HoldItem>();
 
             foreach (var item in request.Items)
             {
-                var inv = await inventoryRepository.GetByProductIdAsync(item.ProductId, ct);
-                if (inv is null) throw new ProductNotFoundException(item.ProductId);
+                if (!inventoryMap.TryGetValue(item.ProductId, out var inv))
+                    throw new ProductNotFoundException(item.ProductId);
 
                 if (inv.AvailableQuantity < item.Quantity)
                     failures.Add(new StockFailure(item.ProductId, item.Quantity, inv.AvailableQuantity));

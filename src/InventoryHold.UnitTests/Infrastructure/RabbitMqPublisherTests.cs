@@ -21,6 +21,8 @@ public class RabbitMqPublisherTests
             .Setup(c => c.CreateChannelAsync(It.IsAny<CreateChannelOptions?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_channel.Object);
 
+        _channel.Setup(c => c.IsOpen).Returns(true);
+
         _channel
             .Setup(c => c.BasicPublishAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(),
@@ -162,5 +164,20 @@ public class RabbitMqPublisherTests
                 It.IsAny<It.IsAnyType>(), It.IsAny<Exception>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task PublishAsync_ChannelReused_CreateChannelCalledOnce()
+    {
+        var releasedHold = Hold.Reconstruct("hold-2", "Alice", HoldStatus.Released,
+            [new HoldItem("widget-a", "Widget A", 1)],
+            DateTime.UtcNow.AddMinutes(-10), DateTime.UtcNow.AddMinutes(5),
+            DateTime.UtcNow, null);
+
+        await _publisher.PublishHoldCreatedAsync(MakeHold());
+        await _publisher.PublishHoldReleasedAsync(releasedHold);
+
+        _connection.Verify(c => c.CreateChannelAsync(
+            It.IsAny<CreateChannelOptions?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 }

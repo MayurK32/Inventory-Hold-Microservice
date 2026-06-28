@@ -21,7 +21,9 @@ using Scalar.AspNetCore;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using System.Text.Json;
+using Microsoft.AspNetCore.RateLimiting;
 using Serilog;
+using System.Threading.RateLimiting;
 
 Log.Logger = new LoggerConfiguration().WriteTo.Console().CreateBootstrapLogger();
 
@@ -71,7 +73,7 @@ try
     // Phase 8: RabbitMQ
     var rabbitMqSettings = builder.Configuration.GetSection("RabbitMq").Get<RabbitMqSettings>()!;
     builder.Services.AddSingleton<IConnection>(_ =>
-        RabbitMqConnectionFactory.CreateAsync(rabbitMqSettings).GetAwaiter().GetResult());
+        Task.Run(() => RabbitMqConnectionFactory.CreateAsync(rabbitMqSettings)).GetAwaiter().GetResult());
     builder.Services.AddSingleton<RabbitMqTopologyInitializer>();
     builder.Services.AddSingleton<IHoldEventPublisher, RabbitMqHoldEventPublisher>();
     builder.Services.AddHostedService<HoldExpiryWorker>();
@@ -89,6 +91,18 @@ try
 
     builder.Services.AddProblemDetails();
 
+    builder.Services.AddRateLimiter(opts =>
+    {
+        opts.AddFixedWindowLimiter("holds-create", o =>
+        {
+            o.PermitLimit = 100;
+            o.Window = TimeSpan.FromMinutes(1);
+            o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+            o.QueueLimit = 0;
+        });
+        opts.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    });
+
     var app = builder.Build();
 
     // Startup pipeline
@@ -97,6 +111,7 @@ try
     await app.Services.GetRequiredService<RabbitMqTopologyInitializer>().InitializeAsync();
 
     // Middleware pipeline (order is fixed)
+    app.UseRateLimiter();
     app.UseMiddleware<CorrelationIdMiddleware>();
     app.UseSerilogRequestLogging(opts =>
         opts.MessageTemplate =

@@ -62,4 +62,22 @@ public class ListHoldsServiceTests
         await FluentActions.Invoking(() => _service.ListHoldsAsync(null, 1, 0))
             .Should().ThrowAsync<DomainException>();
     }
+
+    [Fact]
+    public async Task ListHoldsByCursorAsync_NoCursor_CallsRepoWithNullCursor()
+    {
+        _holds.Setup(r => r.GetPagedByCursorAsync(null, null, 20, default))
+              .ReturnsAsync(((IReadOnlyList<Hold>)Array.Empty<Hold>(), (string?)null));
+
+        await _service.ListHoldsByCursorAsync(null, null, 20);
+
+        _holds.Verify(r => r.GetPagedByCursorAsync(null, null, 20, default), Times.Once);
+    }
+
+    [Fact]
+    public async Task ListHoldsByCursorAsync_PageSizeTooLarge_ThrowsDomainException()
+    {
+        await FluentActions.Invoking(() => _service.ListHoldsByCursorAsync(null, null, 101))
+            .Should().ThrowAsync<DomainException>();
+    }
 }

@@ -1,5 +1,6 @@
 using InventoryHold.Contracts.Requests;
 using InventoryHold.Contracts.Responses;
+using Microsoft.AspNetCore.RateLimiting;
 using InventoryHold.Domain.Entities;
 using InventoryHold.WebApi.Services;
 
@@ -19,6 +20,7 @@ public static class HoldEndpoints
             var hold = await service.CreateHoldAsync(request, ct);
             return Results.Created($"/api/holds/{hold.Id}", ToResponse(hold));
         })
+        .RequireRateLimiting("holds-create")
         .WithName("CreateHold")
         .WithSummary("Create an inventory hold")
         .Produces<HoldResponse>(StatusCodes.Status201Created)
@@ -53,6 +55,19 @@ public static class HoldEndpoints
         .WithName("ListHolds")
         .WithSummary("List holds with optional status filter and pagination")
         .Produces<PagedResponse<HoldResponse>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+
+        group.MapGet("/cursor", async (
+            HoldService service, CancellationToken ct,
+            string? status, string? cursor, int pageSize = 20) =>
+        {
+            var (items, nextCursor) = await service.ListHoldsByCursorAsync(status, cursor, pageSize, ct);
+            return Results.Ok(new CursorPagedResponse<HoldResponse>(
+                items.Select(ToResponse).ToList(), nextCursor));
+        })
+        .WithName("ListHoldsByCursor")
+        .WithSummary("List holds with cursor-based pagination (O(log n) at scale)")
+        .Produces<CursorPagedResponse<HoldResponse>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
     }
 

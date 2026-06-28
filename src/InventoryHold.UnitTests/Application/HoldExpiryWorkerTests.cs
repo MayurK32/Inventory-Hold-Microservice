@@ -44,9 +44,9 @@ public class HoldExpiryWorkerTests
 
         _holds.Verify(r => r.AtomicTransitionAsync(
             It.IsAny<string>(), It.IsAny<HoldStatus>(), It.IsAny<HoldStatus>(),
-            It.IsAny<DateTime>(), default), Times.Never);
+            It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         _inventory.Verify(r => r.IncrementAsync(
-            It.IsAny<IReadOnlyList<HoldItem>>(), default), Times.Never);
+            It.IsAny<IReadOnlyList<HoldItem>>(), It.IsAny<CancellationToken>()), Times.Never);
         _cache.Verify(c => c.InvalidateInventoryAsync(default), Times.Never);
     }
 
@@ -58,18 +58,18 @@ public class HoldExpiryWorkerTests
 
         _holds.Setup(r => r.GetExpiredActiveAsync(It.IsAny<DateTime>(), default))
               .ReturnsAsync([hold1, hold2]);
-        _holds.Setup(r => r.AtomicTransitionAsync("h1", HoldStatus.Active, HoldStatus.Expired, It.IsAny<DateTime>(), default))
+        _holds.Setup(r => r.AtomicTransitionAsync("h1", HoldStatus.Active, HoldStatus.Expired, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
               .ReturnsAsync(hold1);
-        _holds.Setup(r => r.AtomicTransitionAsync("h2", HoldStatus.Active, HoldStatus.Expired, It.IsAny<DateTime>(), default))
+        _holds.Setup(r => r.AtomicTransitionAsync("h2", HoldStatus.Active, HoldStatus.Expired, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
               .ReturnsAsync(hold2);
 
         await _worker.ProcessExpiredHoldsAsync(default);
 
         _holds.Verify(r => r.AtomicTransitionAsync(
             It.IsAny<string>(), HoldStatus.Active, HoldStatus.Expired,
-            It.IsAny<DateTime>(), default), Times.Exactly(2));
-        _inventory.Verify(r => r.IncrementAsync(hold1.Items, default), Times.Once);
-        _inventory.Verify(r => r.IncrementAsync(hold2.Items, default), Times.Once);
+            It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _inventory.Verify(r => r.IncrementAsync(hold1.Items, It.IsAny<CancellationToken>()), Times.Once);
+        _inventory.Verify(r => r.IncrementAsync(hold2.Items, It.IsAny<CancellationToken>()), Times.Once);
         _cache.Verify(c => c.InvalidateInventoryAsync(default), Times.Once);
     }
 
@@ -80,15 +80,15 @@ public class HoldExpiryWorkerTests
 
         _holds.Setup(r => r.GetExpiredActiveAsync(It.IsAny<DateTime>(), default))
               .ReturnsAsync([hold]);
-        _holds.Setup(r => r.AtomicTransitionAsync("h1", HoldStatus.Active, HoldStatus.Expired, It.IsAny<DateTime>(), default))
+        _holds.Setup(r => r.AtomicTransitionAsync("h1", HoldStatus.Active, HoldStatus.Expired, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
               .ReturnsAsync((Hold?)null);
 
         await _worker.ProcessExpiredHoldsAsync(default);
 
         _inventory.Verify(r => r.IncrementAsync(
-            It.IsAny<IReadOnlyList<HoldItem>>(), default), Times.Never);
+            It.IsAny<IReadOnlyList<HoldItem>>(), It.IsAny<CancellationToken>()), Times.Never);
         _events.Verify(e => e.PublishHoldExpiredAsync(
-            It.IsAny<Hold>(), default), Times.Never);
+            It.IsAny<Hold>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -98,11 +98,28 @@ public class HoldExpiryWorkerTests
 
         _holds.Setup(r => r.GetExpiredActiveAsync(It.IsAny<DateTime>(), default))
               .ReturnsAsync([hold]);
-        _holds.Setup(r => r.AtomicTransitionAsync("h1", HoldStatus.Active, HoldStatus.Expired, It.IsAny<DateTime>(), default))
+        _holds.Setup(r => r.AtomicTransitionAsync("h1", HoldStatus.Active, HoldStatus.Expired, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
               .ReturnsAsync((Hold?)null);
 
         await _worker.ProcessExpiredHoldsAsync(default);
 
         _cache.Verify(c => c.InvalidateInventoryAsync(default), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessExpiredHoldsAsync_AlreadyRunning_SecondCallSkips()
+    {
+        var tcs = new TaskCompletionSource<IReadOnlyList<Hold>>();
+        _holds.Setup(r => r.GetExpiredActiveAsync(It.IsAny<DateTime>(), default))
+              .Returns(tcs.Task);
+
+        var first = _worker.ProcessExpiredHoldsAsync(default);  // acquires lock, blocks at GetExpiredActiveAsync
+        var second = _worker.ProcessExpiredHoldsAsync(default); // lock taken → skips immediately
+
+        await second; // completes right away
+        tcs.SetResult(Array.Empty<Hold>());
+        await first;  // now completes
+
+        _holds.Verify(r => r.GetExpiredActiveAsync(It.IsAny<DateTime>(), default), Times.Once);
     }
 }

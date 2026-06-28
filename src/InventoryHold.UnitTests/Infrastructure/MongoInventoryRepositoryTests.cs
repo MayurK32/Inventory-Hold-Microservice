@@ -91,15 +91,14 @@ public class MongoInventoryRepositoryTests
     }
 
     [Fact]
-    public async Task DecrementBatchAsync_CallsUpdateOnePerItem_WithSession()
+    public async Task DecrementBatchAsync_CallsBulkWriteWithSession()
     {
-        _collection.Setup(c => c.UpdateOneAsync(
+        _collection.Setup(c => c.BulkWriteAsync(
             It.IsAny<IClientSessionHandle>(),
-            It.IsAny<FilterDefinition<InventoryDocument>>(),
-            It.IsAny<UpdateDefinition<InventoryDocument>>(),
-            It.IsAny<UpdateOptions>(),
+            It.IsAny<IEnumerable<WriteModel<InventoryDocument>>>(),
+            It.IsAny<BulkWriteOptions>(),
             It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Mock.Of<UpdateResult>());
+            .Returns(Task.FromResult<BulkWriteResult<InventoryDocument>>(null!));
 
         var session = new Mock<IClientSessionHandle>();
         var transaction = new MongoTransaction(session.Object);
@@ -107,32 +106,29 @@ public class MongoInventoryRepositoryTests
 
         await _repo.DecrementBatchAsync(items, transaction);
 
-        _collection.Verify(c => c.UpdateOneAsync(
+        _collection.Verify(c => c.BulkWriteAsync(
             It.IsAny<IClientSessionHandle>(),
-            It.IsAny<FilterDefinition<InventoryDocument>>(),
-            It.IsAny<UpdateDefinition<InventoryDocument>>(),
-            It.IsAny<UpdateOptions>(),
+            It.IsAny<IEnumerable<WriteModel<InventoryDocument>>>(),
+            It.IsAny<BulkWriteOptions>(),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task IncrementAsync_CallsUpdateOnePerItem_NoSession()
+    public async Task IncrementAsync_CallsBulkWrite_NoSession()
     {
-        _collection.Setup(c => c.UpdateOneAsync(
-            It.IsAny<FilterDefinition<InventoryDocument>>(),
-            It.IsAny<UpdateDefinition<InventoryDocument>>(),
-            It.IsAny<UpdateOptions>(),
+        _collection.Setup(c => c.BulkWriteAsync(
+            It.IsAny<IEnumerable<WriteModel<InventoryDocument>>>(),
+            It.IsAny<BulkWriteOptions>(),
             It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Mock.Of<UpdateResult>());
+            .Returns(Task.FromResult<BulkWriteResult<InventoryDocument>>(null!));
 
         var items = new[] { new HoldItem("widget-a", "Widget A", 3) };
 
         await _repo.IncrementAsync(items);
 
-        _collection.Verify(c => c.UpdateOneAsync(
-            It.IsAny<FilterDefinition<InventoryDocument>>(),
-            It.IsAny<UpdateDefinition<InventoryDocument>>(),
-            It.IsAny<UpdateOptions>(),
+        _collection.Verify(c => c.BulkWriteAsync(
+            It.IsAny<IEnumerable<WriteModel<InventoryDocument>>>(),
+            It.IsAny<BulkWriteOptions>(),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 }

@@ -481,3 +481,36 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
 | 6 | `port 0.0.0.0:80 bind: access forbidden` | Port 80 requires admin elevation on Windows | `docker-compose.yml`: frontend ports changed from `"80:80"` to `"3000:80"` |
 
 **Final state:** All 5 containers healthy. `http://localhost:3000` → React app. `http://localhost:3000/health` → `{"status":"Healthy"}`. `http://localhost:3000/api/inventory` → 5 products.
+
+---
+
+## Session 12 — 2026-06-28: Performance Bottleneck Fixes (all 12)
+
+### PROMPT-029
+**Phase:** Implementation — Architect Review + Bottleneck Fixes (B1–B12)
+**Tool:** Claude Code (Edit + Write + Bash) — 2 sessions (context ran out mid-way, resumed)
+**Purpose:** Address all 12 bottlenecks identified by the senior architect review: N+1 reads, sequential bulk writes, channel-per-publish, cache stampede, worker tick overlap, rate limiting, cursor pagination, and minor cleanups.
+**Prompt Summary:**
+> "Plan proper fix for all of them and make sure you run all tests and also test everything"
+**Outcome:** All 12 fixes implemented across 7 groups. 88/88 tests passing.
+
+| Fix | What Changed | Files |
+|-----|-------------|-------|
+| B9 | Max 50 items guard in `CreateHoldAsync` | `HoldService.cs` |
+| B3 | `GetByProductIdsAsync` ($in query) — single DB read replaces N reads | `IInventoryRepository`, `MongoInventoryRepository`, `HoldService`, `CreateHoldServiceTests` |
+| B2 | `BulkWriteAsync` for `DecrementBatchAsync` + `IncrementAsync` | `MongoInventoryRepository`, `MongoInventoryRepositoryTests` |
+| B10 | `BulkWriteAsync` for `ResetAllAsync` | `MongoInventoryRepository` |
+| B6 | `EstimatedDocumentCountAsync` (O(1)) when no filter | `MongoHoldRepository`, `MongoHoldRepositoryTests` |
+| B1 | Channel reuse with `SemaphoreSlim(1,1)` + `IAsyncDisposable` | `RabbitMqHoldEventPublisher`, `RabbitMqPublisherTests` |
+| B4 | Cache stampede guard: static `_fetchLock` + double-check | `InventoryService`, `GetInventoryServiceTests` |
+| B7 | Worker: `_tickLock.WaitAsync(0)` overlap guard + `Parallel.ForEachAsync(DOP=8)` + `Interlocked.Increment` | `HoldExpiryWorker`, `HoldExpiryWorkerTests` |
+| B8 | Fixed-window rate limiter (100 req/min) on `POST /api/holds` | `Program.cs`, `HoldEndpoints.cs` |
+| B11 | Batch `KeyDeleteAsync(RedisKey[])` in `FlushAllAsync` | `RedisCacheService`, `RedisCacheServiceTests` |
+| B12 | `Task.Run()` wrap on RabbitMQ connection init to avoid threadpool deadlock | `Program.cs` |
+| B5 | `GET /api/holds/cursor` — keyset pagination, O(log n), cursor=`"{createdAt:O}\|{id}"` | `IHoldRepository`, `MongoHoldRepository`, `HoldService`, `HoldEndpoints`, `CursorPagedResponse`, `ListHoldsServiceTests` |
+
+**Non-obvious fixes:**
+- `BulkWriteResult<T>` is abstract with no parameterless ctor — `Mock.Of<>` fails; must use `Task.FromResult<BulkWriteResult<InventoryDocument>>(null!)`.
+- `Parallel.ForEachAsync` passes a *linked* `CancellationToken` to each delegate (not `CancellationToken.None`/`default`) — all Moq matchers inside the parallel body must use `It.IsAny<CancellationToken>()`, not `default`.
+- `IChannel.IsOpen` returns `false` by default in Moq — must `Setup(c => c.IsOpen).Returns(true)` or `GetChannelAsync` always considers channel closed.
+- `/api/holds/cursor` endpoint must be registered **before** `/{holdId}` route to avoid ASP.NET Core routing treating "cursor" as a holdId literal.
