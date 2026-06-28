@@ -372,57 +372,54 @@
 > **Skills:** `frontend-developer` · `api-endpoint-builder` · `e2e-testing`
 
 ### 12.1 — Scaffold
-- ⬜ **12.1.1** `cd frontend && npm create vite@latest . -- --template react-ts`
-- ⬜ **12.1.2** Install dependencies: `@tanstack/react-query`, `zustand`, `axios`
-- ⬜ **12.1.3** Set up `QueryClient` provider in `main.tsx`
-- ⬜ **12.1.4** Set up Zustand store: `useUiStore` with `activeOnlyFilter: boolean`, `currentPage: number`
-- ⬜ **12.1.5** Write API client functions in `src/api/` (typed with TS interfaces):
-  - `getInventory()`, `getHolds(params)`, `getHold(id)`, `createHold(body)`, `releaseHold(id)`, `resetInventory()`
+- ✅ **12.1.1** `npm create vite@latest frontend -- --template react-ts`
+- ✅ **12.1.2** Install dependencies: `@tanstack/react-query` v5, `zustand`, `axios`; dev deps: `vitest`, `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`, `happy-dom`
+- ✅ **12.1.3** Set up `QueryClient` provider in `App.tsx` (wraps all 3 section components)
+- ✅ **12.1.4** Set up Zustand store: `useStore` with `activeOnlyFilter`, `currentPage`, `toasts` queue
+- ✅ **12.1.5** Write API client functions in `src/api/` (typed with TS interfaces):
+  - `getInventory()`, `resetInventory()`, `getHolds(status?, page, pageSize)`, `getHold(id)`, `createHold(body)`, `releaseHold(id)`
 
 ### 12.2 — TypeScript Types
-- ⬜ **12.2.1** Write `src/types/api.ts`:
-  - `InventoryItem`, `Hold`, `HoldItem`, `HoldStatus`, `PagedResponse<T>`, `CreateHoldRequest`, `ProblemDetails`
+- ✅ **12.2.1** Write `src/types/api.ts`:
+  - `InventoryItem`, `Hold`, `HoldItem`, `HoldStatus`, `PagedResponse<T>`, `CreateHoldRequest`, `ProblemDetails`, `StockFailure`
 
 ### 12.3 — Inventory Dashboard
-- ⬜ **12.3.1** `[TEST]` Write component test: renders product name + quantities, shows `heldQty` correctly
-- ⬜ **12.3.2** Write `InventoryDashboard` component:
-  - TanStack Query `useQuery(['inventory'], getInventory)`
-  - Table: product name, totalQty, availableQty, heldQty (highlight when heldQty > 0)
-  - Skeleton loader while `isLoading`
+- ✅ **12.3.1** `[TEST]` Write component test: renders product name + quantities, `heldQuantity > 0` row gets `held` CSS class
+- ✅ **12.3.2** Write `InventoryDashboard` component:
+  - TanStack Query v5 `useQuery({ queryKey: ['inventory'], queryFn: getInventory })`
+  - Table: product name, totalQuantity, availableQuantity, heldQuantity (row highlighted when heldQuantity > 0)
+  - Skeleton loader while `isLoading`; Reset Inventory button with spinner
 
 ### 12.4 — Create Hold Form
-- ⬜ **12.4.1** `[TEST]` Write component test: form submits correct payload, shows error on 409
-- ⬜ **12.4.2** Write `CreateHoldForm` component:
+- ✅ **12.4.1** `[TEST]` Write component test: form submits correct payload, shows ErrorBanner on 409 with `detail` text
+- ✅ **12.4.2** Write `CreateHoldForm` component:
   - Optional `customerName` text input
-  - Product selector dropdown (populated from `getInventory`) — product removed from dropdown once selected
-  - Quantity input per selected product (min 1)
-  - TanStack Query `useMutation(createHold)` with `onSuccess: invalidateQueries(['holds', 'inventory'])`
-  - Inline error banner showing `ProblemDetails.detail` on 409
-  - Spinner on submit button while `isPending`
+  - Product selector dropdown (from `getInventory`) — already-selected products removed from options
+  - Quantity input per item; Add item / Remove item buttons
+  - `useMutation({ mutationFn: createHold, onSuccess: invalidate(['holds','inventory']) })`
+  - `onError`: sets `error` state from `err.response?.data?.detail` → `<ErrorBanner>`
+  - Spinner on submit button while `isPending`; form resets on success
 
 ### 12.5 — Active Holds List
-- ⬜ **12.5.1** `[TEST]` Write component test: renders hold items, countdown visible, filter toggle works
-- ⬜ **12.5.2** Write `HoldsList` component:
-  - Zustand `activeOnlyFilter` toggle (ON = only Active, OFF = all statuses)
-  - TanStack Query `useQuery(['holds', { status, page }], getHolds)`
-  - Per hold: `customerName`, items[], status badge, `expiresAt` countdown timer
-  - Countdown: client-computed from `expiresAt` via `setInterval` per hold card
-  - On countdown hit 0: `invalidateQueries(['holds'])` to refetch and confirm expiry
-  - Pagination controls: prev/next, page info
+- ✅ **12.5.1** `[TEST]` Write component test: renders hold customerName, filter toggle calls `getHolds(undefined,...)`, next page increments currentPage
+- ✅ **12.5.2** Write `HoldsList` component:
+  - Zustand `activeOnlyFilter` toggle (ON = `?status=active`, OFF = omit param → all statuses)
+  - TanStack Query v5 `useQuery({ queryKey: ['holds', { status, page }], queryFn: () => getHolds(status, page) })`
+  - Pagination controls: Prev/Next, disabled at boundaries, "Page X of Y"
 
-### 12.6 — Release Hold
-- ⬜ **12.6.1** `[TEST]` Write component test: confirm dialog appears, DELETE called on confirm
-- ⬜ **12.6.2** Add Release button to each hold card (Active holds only)
-  - `useMutation(releaseHold)` with `onSuccess: invalidateQueries(['holds', 'inventory'])`
-  - Confirmation step before mutation fires
-  - On `410 Gone`: show status as "Already Released/Expired" and disable button
-  - Spinner during `isPending`
+### 12.6 — Release Hold + HoldCard
+- ✅ **12.6.1** `[TEST]` Write component tests: countdown shows, Release button Active-only, inline confirm appears, confirm calls `releaseHold`
+- ✅ **12.6.2** Write `HoldCard` component:
+  - Countdown: `secondsLeft` local state via `setInterval`; on 0 → `invalidateQueries(['holds'])`
+  - Status badge: Active=green, Released=grey, Expired=red
+  - Release button (Active only): `confirming` boolean for inline "Confirm? / Cancel" pattern
+  - `useMutation(releaseHold)` with `onSuccess: invalidate(['holds','inventory'])`; on 410: show `errorMessage`
 
 ### 12.7 — Error Handling
-- ⬜ **12.7.1** Write `ErrorBanner` component for inline API domain errors (409, 404, 422)
-- ⬜ **12.7.2** Write `Toast` component for network/500 errors (auto-dismiss 4s)
-- ⬜ **12.7.3** Wire axios interceptor: 5xx → dispatch toast, 4xx → return to component for inline display
-- ⬜ **12.7.4** Write `LoadingSkeleton` and `LoadingSpinner` shared components
+- ✅ **12.7.1** Write `ErrorBanner` component for inline domain errors (renders nothing when `message` is null)
+- ✅ **12.7.2** Write `Toast` component — subscribes to Zustand `toasts` queue; each toast auto-dismisses after 4s via `useEffect`
+- ✅ **12.7.3** Axios interceptor: 5xx (or network error) → `useStore.getState().addToast(...)` (works outside React); 4xx re-thrown to component
+- ✅ **12.7.4** Write `LoadingSkeleton` (shimmer rows) and `LoadingSpinner` (button spinner)
 
 ---
 
@@ -432,23 +429,21 @@
 >
 > **Skills:** `docker-expert` · `microservices-patterns`
 
-- ⬜ **13.1** Write `frontend/Dockerfile` — multi-stage:
+- ✅ **13.1** Write `frontend/Dockerfile` — multi-stage:
   - Stage 1 `build`: `node:20-alpine` → `npm ci` → `npm run build`
   - Stage 2 `final`: `nginx:alpine` → copy `/dist` → copy nginx config
-- ⬜ **13.2** Write `nginx/nginx.conf`:
+- ✅ **13.2** Write `frontend/nginx.conf`:
   - Serve `index.html` for all non-API routes (SPA fallback)
   - `location /api/` → `proxy_pass http://api:8080/api/`
   - `location /health` → `proxy_pass http://api:8080/health`
-  - `location /swagger` → `proxy_pass http://api:8080/swagger`
-- ⬜ **13.3** Add `frontend` service to `docker-compose.yml`:
-  - Build from `./frontend/Dockerfile`
-  - Expose port `80`
-  - `depends_on: api: condition: service_healthy`
-- ⬜ **13.4** Write `api/Dockerfile` — multi-stage:
+- ✅ **13.3** Add `frontend` service to `docker-compose.yml`:
+  - Build from `./frontend/Dockerfile`; expose port `80`; `depends_on: api: condition: service_healthy`
+- ✅ **13.4** Write `api/Dockerfile` — multi-stage:
   - Stage 1 `build`: `mcr.microsoft.com/dotnet/sdk:10.0` → `dotnet publish`
-  - Stage 2 `final`: `mcr.microsoft.com/dotnet/aspnet:10.0` → copy publish output
-  - Non-root user
-- ⬜ **13.5** Run full integration: `docker-compose up --build`
+  - Stage 2 `final`: `mcr.microsoft.com/dotnet/aspnet:10.0` → non-root `appuser`; `ASPNETCORE_URLS=http://+:8080`
+- ✅ **13.5** Add `api` service to `docker-compose.yml`:
+  - `build.context: .`, `dockerfile: api/Dockerfile`; `depends_on` mongodb+redis+rabbitmq (all service_healthy); healthcheck via `wget -qO- http://localhost:8080/health`
+- ⬜ **13.6** Run full integration: `docker-compose up --build`
   - All 5 services start healthy
   - Browser → `http://localhost` → React app loads
   - Create hold → inventory updates without page refresh

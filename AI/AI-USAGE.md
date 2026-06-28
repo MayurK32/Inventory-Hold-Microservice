@@ -352,6 +352,50 @@ Zero tests require Docker — all infrastructure mocked via Moq.
 
 ---
 
+## Phase 12 + 13 — React Frontend + Docker Integration
+
+**Goal:** React SPA demonstrating the full hold lifecycle (create → view → countdown → release/expire). Single `docker-compose up --build` starts all 5 services.
+
+**Planning approach:**
+- Used Claude Code plan mode; AI read all API contract types (exact camelCase field names confirmed), docker-compose.yml, design-discussion.md, and progress.md
+- Key architecture decisions: TanStack Query v5 (server state only), Zustand (UI state + toast queue), Axios interceptor pattern (`useStore.getState()` works outside React)
+- Filter "show all": user chose to omit `status` param entirely (backend was `?? "active"` — 1-line fix to pass null through; repo already handled null → all docs)
+
+**Test strategy (TDD-light):**
+- Vitest + @testing-library/react + happy-dom (switched from jsdom due to `html-encoding-sniffer` → `@exodus/bytes` ESM conflict)
+- 11 component tests across 4 test files; all mocks via `vi.mock` + `vi.hoisted(() => vi.fn())`
+- `renderWithProviders` uses `{ wrapper: Wrapper }` pattern so `rerender` auto-wraps in `QueryClientProvider`
+
+**Files created (28 new files):**
+
+| Area | Files |
+|------|-------|
+| Config | `frontend/vite.config.ts` (vitest inline), `frontend/src/setupTests.ts` |
+| Types | `frontend/src/types/api.ts` |
+| API | `frontend/src/api/client.ts`, `inventory.ts`, `holds.ts` |
+| Store | `frontend/src/store/useStore.ts` |
+| Shared | `ErrorBanner.tsx`, `Toast.tsx`, `LoadingSkeleton.tsx`, `LoadingSpinner.tsx` |
+| InventoryDashboard | `InventoryDashboard.tsx`, `InventoryDashboard.module.css`, `InventoryDashboard.test.tsx` |
+| CreateHoldForm | `CreateHoldForm.tsx`, `CreateHoldForm.module.css`, `CreateHoldForm.test.tsx` |
+| HoldsList | `HoldsList.tsx`, `HoldCard.tsx`, `HoldsList.module.css`, `HoldsList.test.tsx`, `HoldCard.test.tsx` |
+| App | `App.tsx`, `App.css`, `main.tsx`, `test-utils.tsx` |
+| Docker | `api/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf` |
+| docker-compose | `api` + `frontend` services added |
+
+**Backend fix:** `HoldEndpoints.cs` — removed `status ?? "active"` so `GET /api/holds` with no status param returns all holds (repo `GetPagedAsync` already used `FilterDefinition.Empty` for null status).
+
+**Verification:** `npx vitest run` → **11/11 passed** · `dotnet test` → **82/82 passed**
+
+**Non-obvious issues encountered:**
+1. `rolldown` Win32 native binding not installed by npm optional-dep bug — explicit package install required
+2. `jsdom` ESM conflict — switched to `happy-dom`; identical API, no config change
+3. `vi.mock` hoisting: top-level `const` in TDZ when factory runs — `vi.hoisted()` or inline data required
+4. RTL `rerender` drops providers — fixed by `render(ui, { wrapper: Wrapper })` pattern
+5. Zustand store is a singleton across tests — `beforeEach(() => useStore.setState({...}))` required
+6. CSS Modules mangle class names in test env — `.toMatch(/held/)` regex beats exact `.toHaveClass()`
+
+---
+
 ## Human Audit
 *(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
 

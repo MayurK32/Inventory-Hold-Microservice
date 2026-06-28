@@ -45,7 +45,7 @@ public static class HoldEndpoints
             HoldService service, CancellationToken ct,
             string? status, int page = 1, int pageSize = 20) =>
         {
-            var (items, total) = await service.ListHoldsAsync(status ?? "active", page, pageSize, ct);
+            var (items, total) = await service.ListHoldsAsync(status, page, pageSize, ct);
             var totalPages = (int)Math.Ceiling((double)total / pageSize);
             return Results.Ok(new PagedResponse<HoldResponse>(
                 items.Select(ToResponse).ToList(), total, page, pageSize, totalPages));

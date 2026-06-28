@@ -412,4 +412,51 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
 - All 6 endpoints annotated with `WithSummary`
 - `dotnet test` → **Passed: 82, Failed: 0**
 - **Phase 11 verified:** All 5 mandatory scenarios covered by named tests; 0 tests require Docker
-- **Non-obvious fix:** `AddMongoDb(connectionString, tags: [...])` throws in `AspNetCore.HealthChecks.MongoDb` v9 — second param is `Func<IServiceProvider, IMongoClient>?`, not tags. Fixed by using factory overload `AddMongoDb(sp => sp.GetRequiredService<IMongoClient>())` and same for Redis. — `TimeSpan? expiry` + `bool keepTtl` (v2 style, 6 params) replaced by a new `Expiration` struct (v3 style, 5 params). Moq `Callback<..., TimeSpan?, bool, ...>` silently did not fire because the overload didn't match. Resolved by using `_db.Invocations` to inspect captured arguments directly and casting `Arguments[2]` to `Expiration` for TTL assertions.
+- **Non-obvious fix:** `AddMongoDb(connectionString, tags: [...])` throws in `AspNetCore.HealthChecks.MongoDb` v9 — second param is `Func<IServiceProvider, IMongoClient>?`, not tags. Fixed by using factory overload `AddMongoDb(sp => sp.GetRequiredService<IMongoClient>())` and same for Redis.
+
+---
+
+## Session 11 — 2026-06-28: Phase 12 React Frontend + Phase 13 Docker Integration
+
+### PROMPT-026
+**Phase:** Planning — Phase 12 + 13
+**Tool:** Claude Code plan mode
+**Purpose:** Design the complete React SPA (all 4 views, TDD-light) plus Docker wiring for `docker-compose up --build`.
+**Prompt Summary:**
+> "plan phase 12, think deeply, clean code, right patterns as discussed check docs and AI files and then create perfect plan"
+**Outcome:** Comprehensive plan written covering:
+- Vite React-TS scaffold; TanStack Query v5; Zustand for UI state + toasts; Axios with 5xx interceptor
+- File structure: `src/api/`, `src/types/`, `src/store/`, `src/components/{shared,InventoryDashboard,CreateHoldForm,HoldsList}`
+- TDD-light: 11 component tests (Vitest + @testing-library/react + happy-dom) — 2 InventoryDashboard, 2 CreateHoldForm, 3 HoldsList, 4 HoldCard
+- Countdown via `secondsLeft` local state; inline confirm pattern for release; `useStore.getState()` in axios interceptor
+- `api/Dockerfile` (.NET 10 multi-stage), `frontend/Dockerfile` (Node 20 → nginx), `frontend/nginx.conf` (SPA fallback + `/api/*` proxy)
+- Backend 1-line fix: `status ?? "active"` removed from `HoldEndpoints` — repository already handles `null` as "all holds"
+
+---
+
+### PROMPT-027
+**Phase:** Implementation — Phase 12 + 13 Execution
+**Tool:** Claude Code (Write + Edit + Bash)
+**Purpose:** Execute approved plan — scaffold, types, API layer, store, all components, Docker files, backend fix.
+**Prompt Summary:**
+> *(Plan approved — implementation proceeded automatically)*
+**Outcome:**
+- Vite scaffold + clean deps install (resolved rolldown Win32 native binding issue via explicit `@rolldown/binding-win32-x64-msvc` install + clean reinstall)
+- `src/types/api.ts` — all 8 TS interfaces matching exact camelCase API field names
+- `src/api/client.ts` — Axios with 5xx interceptor calling `useStore.getState().addToast()`
+- `src/api/inventory.ts` + `src/api/holds.ts` — full typed API functions
+- `src/store/useStore.ts` — Zustand: `activeOnlyFilter`, `currentPage`, `toasts[]`
+- Shared: `ErrorBanner`, `Toast`, `LoadingSkeleton`, `LoadingSpinner`
+- `InventoryDashboard` + tests (2): renders products, `held` CSS class on `heldQuantity > 0` rows
+- `CreateHoldForm` + tests (2): payload shape, 409 ErrorBanner
+- `HoldsList` + `HoldCard` + tests (7): renders, filter toggle → `getHolds(undefined,...)`, next page, countdown, Release-only-for-Active, inline confirm, confirm calls `releaseHold`
+- `api/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf`, `docker-compose.yml` updated (api + frontend services)
+- Backend: removed `status ?? "active"` from `HoldEndpoints.MapGet("/")` — null status → all holds (repo already handled this)
+- `vitest run` → **11/11 passed** · `dotnet test` → **82/82 passed**
+- **Non-obvious fixes:**
+  - `rolldown` Win32 native binding not installed by npm (known npm optional-dep bug) — required explicit `@rolldown/binding-win32-x64-msvc` install
+  - `jsdom` pulls `html-encoding-sniffer` → `@exodus/bytes` (ESM-only, CJS `require()` fails) — switched to `happy-dom`
+  - `vi.mock` factory hoisting: referencing top-level `const mockInventory` inside factory → TDZ ReferenceError — fixed with inline data + `vi.hoisted(() => vi.fn())` for controllable mocks
+  - `rerender` from RTL loses providers — fixed `renderWithProviders` to use `{ wrapper: Wrapper }` option so `rerender` auto-wraps
+  - Zustand store persists between tests — fixed with `beforeEach(() => useStore.setState({ activeOnlyFilter: true, currentPage: 1 }))` in HoldsList tests
+  - CSS Module class names are mangled in test env — fixed with `.toMatch(/held/)` regex instead of exact `.toHaveClass('held')`
