@@ -264,7 +264,7 @@
   - Restores `availableQty = totalQty` for all inventory items
   - Calls `IInventoryCache.FlushAllAsync`
 - ✅ **7.5** Write `POST /api/inventory/reset` endpoint
-- ⬜ **7.6** Verify: POST hold → check inventory → reset → inventory back to seed quantities
+- ✅ **7.6** Verify: POST hold → check inventory → reset → inventory back to seed quantities
 
 ---
 

@@ -267,7 +267,7 @@ Domain entities have `private set` and no BsonAttributes. Options: (a) add BsonA
 
 **Verification:** `dotnet test` → **Passed: 60, Failed: 0** (54 Phase 2–6 + 6 Phase 7)
 
-**Pending:** 7.6 — manual verify: create hold → GET /api/inventory (heldQty > 0) → POST /api/inventory/reset → GET /api/holds (empty)
+**Manual test (7.6) — verified:** Created hold (widget-a qty 5) → GET /api/inventory confirmed `heldQuantity: 5`, `availableQuantity` reduced → POST /api/inventory/reset returned all products with `availableQuantity = totalQuantity`, `heldQuantity: 0` → GET /api/holds confirmed empty. ✅
 
 ---
 
