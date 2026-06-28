@@ -1,4 +1,6 @@
 using InventoryHold.Contracts.Settings;
+using InventoryHold.Domain.Cache;
+using InventoryHold.Domain.Messaging;
 using InventoryHold.Domain.Repositories;
 using InventoryHold.Domain.Transactions;
 using InventoryHold.Infrastructure.Persistence;
@@ -7,6 +9,8 @@ using InventoryHold.Infrastructure.Transactions;
 using InventoryHold.WebApi.Endpoints;
 using InventoryHold.WebApi.Middleware;
 using InventoryHold.WebApi.Services;
+using InventoryHold.WebApi.Stubs;
+using InventoryHold.WebApi.Workers;
 using MongoDB.Driver;
 using Scalar.AspNetCore;
 
@@ -42,7 +46,11 @@ builder.Services.AddSingleton<DatabaseSeeder>();
 
 // TODO Phase 9: Redis — IConnectionMultiplexer, RedisCacheService
 // TODO Phase 8: RabbitMQ — RabbitMqConnectionFactory, topology, IHoldEventPublisher
-// TODO Phase 5: Background worker — HoldExpiryWorker
+
+// Phase 5: stubs replaced in Phases 8/9
+builder.Services.AddSingleton<IHoldEventPublisher, NullHoldEventPublisher>();
+builder.Services.AddSingleton<IInventoryCache, NullInventoryCache>();
+builder.Services.AddHostedService<HoldExpiryWorker>();
 // TODO Phase 10: Health checks — MongoDB, Redis, RabbitMQ
 
 // Phase 4: exception handler + hold service

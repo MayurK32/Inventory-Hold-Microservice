@@ -221,4 +221,37 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
 - `dotnet test` → **Passed: 39, Failed: 0** (31 Phase 2+3 + 8 Phase 4)
 - **Non-obvious fix logged:** `when (e.Code == 112)` exception filter silently evaluates to false if `MongoCommandException.Code` property access throws internally (BsonDocument key access). Fixed by checking `e.Message.Contains("WriteConflict")` first — short-circuits before `e.Code` is evaluated. Production behavior unchanged since real write conflicts always have "WriteConflict" in the message.
 
+---
+
+## Session 5 — 2026-06-28: Phase 5 Background Worker
+
+### PROMPT-015
+**Phase:** Implementation — Phase 5 Planning
+**Tool:** Claude Code plan mode (EnterPlanMode → ExitPlanMode)
+**Purpose:** Plan the HoldExpiryWorker background service. Read progress.md Phase 5 tasks, IHoldRepository/IInventoryRepository interfaces, MongoHoldRepository implementation, IInventoryCache and IHoldEventPublisher domain interfaces, and HoldSettings to derive the full worker design including race condition handling.
+**Prompt Summary:**
+> "plan phase 5"
+**Outcome:** Plan written covering:
+- Null stubs for `IHoldEventPublisher` and `IInventoryCache` (real implementations in Phases 8/9)
+- `HoldExpiryWorker : BackgroundService` with public `ProcessExpiredHoldsAsync` for direct testability
+- Race condition handling: `AtomicTransitionAsync` returns null → skip inventory + event
+- Cache invalidation only when ≥1 hold successfully transitioned (not on race-lost or empty)
+- Delay-first loop pattern to avoid hitting DB before startup seed completes
+- 4 TDD tests matching progress.md tasks 5.1–5.4
+
+---
+
+### PROMPT-016
+**Phase:** Implementation — Phase 5 Execution
+**Tool:** Claude Code (Write + Edit + Bash)
+**Purpose:** Execute the approved Phase 5 plan — null stubs, worker, tests, Program.cs wiring.
+**Prompt Summary:**
+> *(Plan approved — implementation proceeded automatically)*
+**Outcome:**
+- `NullHoldEventPublisher` + `NullInventoryCache` stubs in `WebApi/Stubs/`
+- `HoldExpiryWorker.cs` in `WebApi/Workers/` — `ProcessExpiredHoldsAsync` public, `ExecuteAsync` polls with delay-first
+- `HoldExpiryWorkerTests.cs` — 4 tests (NoExpiredHolds, TwoExpiredHolds, RaceCondition, AllRaceLost)
+- `Program.cs` wired: stub singletons + `AddHostedService<HoldExpiryWorker>()`
+- `dotnet test` → **Passed: 43, Failed: 0** (39 Phase 2+3+4 + 4 Phase 5)
+
 *(Additional prompts will be logged here as the session progresses)*

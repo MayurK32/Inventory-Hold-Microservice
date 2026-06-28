@@ -209,6 +209,31 @@ Domain entities have `private set` and no BsonAttributes. Options: (a) add BsonA
 
 ---
 
+## Phase 5 — Background Worker (TDD)
+
+**Files created:** `WebApi/Stubs/NullHoldEventPublisher.cs`, `WebApi/Stubs/NullInventoryCache.cs`, `WebApi/Workers/HoldExpiryWorker.cs`, `UnitTests/Application/HoldExpiryWorkerTests.cs`
+**Files modified:** `WebApi/Program.cs`
+
+**Key design decisions:**
+- `ProcessExpiredHoldsAsync` is `public` on `HoldExpiryWorker` — allows direct test calls without spinning up the `BackgroundService` lifecycle (no need for `IHostedService.StartAsync` + CancellationToken plumbing in tests)
+- Delay-first loop in `ExecuteAsync` — worker waits 30s before first poll, ensuring seed data is ready before any expiry queries run at startup
+- `when (!stoppingToken.IsCancellationRequested)` exception filter — `OperationCanceledException` on graceful shutdown bypasses the catch and exits the loop naturally; only genuine errors are logged
+- Null stubs (`NullHoldEventPublisher`, `NullInventoryCache`) registered as `AddSingleton` — replaced by real implementations in Phases 8 (RabbitMQ) and 9 (Redis) with a one-line swap in Program.cs
+- Cache invalidated once per tick (not per hold) and only if ≥1 transition succeeded — avoids unnecessary Redis writes when all holds lost the race to DELETE
+
+**Race condition design:**
+`AtomicTransitionAsync` uses MongoDB `FindOneAndUpdate` with filter `{ _id, status: Active }`. If DELETE already transitioned the hold, the filter matches nothing → returns `null`. Worker checks `if (result is null) continue` — skips both `IncrementAsync` and `PublishHoldExpiredAsync`. No double-restore of inventory is possible.
+
+**Additional logging added:** `LogInformation` on each successful expiry + tick summary; `LogDebug` on empty ticks and race-lost skips. Worker namespace log level set to `Debug` in `appsettings.Development.json` for visibility during development.
+
+**Infrastructure fix:** `appsettings.Development.json` corrected to use `localhost:27017` / `localhost:6379` / `localhost` for all services — the base `appsettings.json` uses Docker hostnames (`mongodb`, `redis`, `rabbitmq`) for container-to-container networking; the Development override is required when running the API locally against Docker-exposed ports.
+
+**Verification:** `dotnet test` → **Passed: 43, Failed: 0** (39 Phase 2+3+4 + 4 Phase 5)
+
+**Manual test (5.7) — verified:** Set `ExpirationMinutes: 1`, created hold (widget-a qty 5), waited ~2 min, confirmed `status: "Expired"` in MongoDB and `availableQuantity` restored to baseline. ✅
+
+---
+
 ## Human Audit
 *(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
 

@@ -190,21 +190,21 @@
 >
 > **Skills:** `dotnet-backend` · `mongodb-inventory-hold` · `error-handling-patterns`
 
-- ⬜ **5.1** `[TEST]` Write `HoldExpiryWorkerTests.NoExpiredHolds`:
+- ✅ **5.1** `[TEST]` Write `HoldExpiryWorkerTests.NoExpiredHolds`:
   - When no holds are past `expiresAt`: 0 MongoDB writes, 0 cache operations
-- ⬜ **5.2** `[TEST]` Write `HoldExpiryWorkerTests.ExpiresHolds`:
+- ✅ **5.2** `[TEST]` Write `HoldExpiryWorkerTests.ExpiresHolds`:
   - Given 2 expired holds: transitions both to Expired, increments inventory for each item
-- ⬜ **5.3** `[TEST]` Write `HoldExpiryWorkerTests.RaceCondition`:
+- ✅ **5.3** `[TEST]` Write `HoldExpiryWorkerTests.RaceCondition`:
   - `AtomicTransitionAsync` returns null (lost race): skip inventory restore, skip event publish
-- ⬜ **5.4** `[TEST]` Write `HoldExpiryWorkerTests.CacheInvalidation`:
+- ✅ **5.4** `[TEST]` Write `HoldExpiryWorkerTests.CacheInvalidation`:
   - When ≥ 1 hold expired: `InvalidateInventoryAsync` called exactly once
   - When 0 holds expired: `InvalidateInventoryAsync` never called
-- ⬜ **5.5** Write `HoldExpiryWorker : BackgroundService` in `WebApi/Workers/`
+- ✅ **5.5** Write `HoldExpiryWorker : BackgroundService` in `WebApi/Workers/`
   - Poll every `HoldSettings:PollingIntervalSeconds` (default 30s)
   - Use `CancellationToken` for graceful shutdown
   - Wrap each iteration in try/catch — log errors, never crash the worker
-- ⬜ **5.6** Register `HoldExpiryWorker` as hosted service in `Program.cs`
-- ⬜ **5.7** Verify: create a hold → wait 15 min (or lower `HoldExpirationMinutes` to 1 for testing) → hold status becomes `Expired`, inventory restored
+- ✅ **5.6** Register `HoldExpiryWorker` as hosted service in `Program.cs`
+- ✅ **5.7** Verify: create a hold → wait 15 min (or lower `HoldExpirationMinutes` to 1 for testing) → hold status becomes `Expired`, inventory restored
 
 ---
 
