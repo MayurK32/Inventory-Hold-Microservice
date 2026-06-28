@@ -3,9 +3,11 @@ using InventoryHold.Contracts.Settings;
 using InventoryHold.Domain.Cache;
 using InventoryHold.Domain.Entities;
 using InventoryHold.Domain.Exceptions;
+using InventoryHold.Domain.Messaging;
 using InventoryHold.Domain.Repositories;
 using InventoryHold.Domain.Transactions;
 using InventoryHold.WebApi.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 
@@ -22,7 +24,8 @@ public class GetHoldServiceTests
         _service = new HoldService(
             _holds.Object, Mock.Of<IInventoryRepository>(),
             Mock.Of<ISettingsRepository>(), Mock.Of<ITransactionFactory>(),
-            Options.Create(new HoldSettings()), _cache.Object);
+            Options.Create(new HoldSettings()), _cache.Object,
+            Mock.Of<IHoldEventPublisher>(), NullLogger<HoldService>.Instance);
     }
 
     private static Hold MakeActiveHold(string id = "h1") =>

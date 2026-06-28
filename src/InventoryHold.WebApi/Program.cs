@@ -9,7 +9,9 @@ using InventoryHold.Infrastructure.Transactions;
 using InventoryHold.WebApi.Endpoints;
 using InventoryHold.WebApi.Middleware;
 using InventoryHold.WebApi.Services;
+using InventoryHold.Infrastructure.Messaging;
 using InventoryHold.WebApi.Stubs;
+using RabbitMQ.Client;
 using InventoryHold.WebApi.Workers;
 using MongoDB.Driver;
 using Scalar.AspNetCore;
@@ -45,10 +47,13 @@ builder.Services.AddSingleton<CollectionIndexInitializer>();
 builder.Services.AddSingleton<DatabaseSeeder>();
 
 // TODO Phase 9: Redis — IConnectionMultiplexer, RedisCacheService
-// TODO Phase 8: RabbitMQ — RabbitMqConnectionFactory, topology, IHoldEventPublisher
 
-// Phase 5: stubs replaced in Phases 8/9
-builder.Services.AddSingleton<IHoldEventPublisher, NullHoldEventPublisher>();
+// Phase 8: RabbitMQ
+var rabbitMqSettings = builder.Configuration.GetSection("RabbitMq").Get<RabbitMqSettings>()!;
+builder.Services.AddSingleton<IConnection>(_ =>
+    RabbitMqConnectionFactory.CreateAsync(rabbitMqSettings).GetAwaiter().GetResult());
+builder.Services.AddSingleton<RabbitMqTopologyInitializer>();
+builder.Services.AddSingleton<IHoldEventPublisher, RabbitMqHoldEventPublisher>();
 builder.Services.AddSingleton<IInventoryCache, NullInventoryCache>();
 builder.Services.AddHostedService<HoldExpiryWorker>();
 // TODO Phase 10: Health checks — MongoDB, Redis, RabbitMQ
@@ -65,6 +70,7 @@ var app = builder.Build();
 // Phase 3: startup pipeline
 await app.Services.GetRequiredService<CollectionIndexInitializer>().InitializeAsync();
 await app.Services.GetRequiredService<DatabaseSeeder>().SeedAsync();
+await app.Services.GetRequiredService<RabbitMqTopologyInitializer>().InitializeAsync();
 
 // Middleware pipeline (order is fixed)
 app.UseExceptionHandler();

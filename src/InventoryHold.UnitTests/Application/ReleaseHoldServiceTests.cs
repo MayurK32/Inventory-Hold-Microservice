@@ -3,9 +3,11 @@ using InventoryHold.Contracts.Settings;
 using InventoryHold.Domain.Cache;
 using InventoryHold.Domain.Entities;
 using InventoryHold.Domain.Exceptions;
+using InventoryHold.Domain.Messaging;
 using InventoryHold.Domain.Repositories;
 using InventoryHold.Domain.Transactions;
 using InventoryHold.WebApi.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 
@@ -16,6 +18,7 @@ public class ReleaseHoldServiceTests
     private readonly Mock<IHoldRepository>      _holds     = new();
     private readonly Mock<IInventoryRepository> _inventory = new();
     private readonly Mock<IInventoryCache>      _cache     = new();
+    private readonly Mock<IHoldEventPublisher>  _publisher = new();
     private readonly HoldService _service;
 
     public ReleaseHoldServiceTests()
@@ -23,7 +26,8 @@ public class ReleaseHoldServiceTests
         _service = new HoldService(
             _holds.Object, _inventory.Object,
             Mock.Of<ISettingsRepository>(), Mock.Of<ITransactionFactory>(),
-            Options.Create(new HoldSettings()), _cache.Object);
+            Options.Create(new HoldSettings()), _cache.Object,
+            _publisher.Object, NullLogger<HoldService>.Instance);
     }
 
     private static Hold MakeHold(string id, HoldStatus status,
@@ -48,6 +52,18 @@ public class ReleaseHoldServiceTests
         _inventory.Verify(r => r.IncrementAsync(releasedHold.Items, default), Times.Once);
         _cache.Verify(c => c.InvalidateInventoryAsync(default), Times.Once);
         _cache.Verify(c => c.InvalidateHoldAsync("h1", default), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReleaseHoldAsync_Success_PublishesHoldReleasedEvent()
+    {
+        var releasedHold = MakeHold("h1", HoldStatus.Released, DateTime.UtcNow);
+        _holds.Setup(r => r.AtomicTransitionAsync("h1", HoldStatus.Active, HoldStatus.Released, It.IsAny<DateTime>(), default))
+              .ReturnsAsync(releasedHold);
+
+        await _service.ReleaseHoldAsync("h1");
+
+        _publisher.Verify(p => p.PublishHoldReleasedAsync(It.IsAny<Hold>(), default), Times.Once);
     }
 
     [Fact]

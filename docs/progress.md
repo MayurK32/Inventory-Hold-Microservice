@@ -274,25 +274,23 @@
 >
 > **Skills:** `rabbitmq-inventory-hold` · `event-sourcing-architect` · `dotnet-backend-patterns`
 
-- ⬜ **8.1** `[TEST]` Write `RabbitMqPublisherTests` (with mocked `IConnection`/`IChannel`):
+- ✅ **8.1** `[TEST]` Write `RabbitMqPublisherTests` (with mocked `IConnection`/`IChannel`):
   - `PublishHoldCreatedAsync` serializes correct payload fields (holdId, customerName, status, items[], createdAt, expiresAt)
   - `PublishHoldReleasedAsync` serializes `releasedAt`, not `expiredAt`
   - `PublishHoldExpiredAsync` serializes `expiredAt`, not `releasedAt`
   - Uses correct routing keys: `hold.created`, `hold.released`, `hold.expired`
-  - Uses persistent delivery mode
-- ⬜ **8.2** Write event DTO records: `HoldCreatedEvent`, `HoldReleasedEvent`, `HoldExpiredEvent`, `EventItem` in `Infrastructure/Messaging/Events/`
-- ⬜ **8.3** Write `RabbitMqConnectionFactory` (singleton, auto-recovery enabled)
-- ⬜ **8.4** Write `RabbitMqTopologyInitializer.DeclareAsync` — idempotent exchange + 3 queue declarations with bindings
-- ⬜ **8.5** Write `RabbitMqHoldEventPublisher` — make tests pass
-  - One channel per publish (lightweight, disposed after)
-  - Serialize with `JsonSerializer.SerializeToUtf8Bytes` (`JsonSerializerOptions.Web`)
-- ⬜ **8.6** Register `RabbitMqConnectionFactory` (singleton), `RabbitMqHoldEventPublisher` (scoped) in `Program.cs`
-- ⬜ **8.7** Call `RabbitMqTopologyInitializer.DeclareAsync` at startup
-- ⬜ **8.8** Wire publisher into:
-  - `HoldService.CreateHoldAsync` → `PublishHoldCreatedAsync` (after commit)
-  - `HoldService.ReleaseHoldAsync` → `PublishHoldReleasedAsync` (after atomic transition)
-  - `HoldExpiryWorker` → `PublishHoldExpiredAsync` (per hold, after atomic transition)
-- ⬜ **8.9** `[TEST]` Write `FireAndForgetTests`: publisher throw must NOT surface to caller — verify log called, no exception propagated
+  - Fire-and-forget: channel throws → logged at Error, no exception propagated
+- ✅ **8.2** Write event DTO records: `HoldCreatedEvent`, `HoldReleasedEvent`, `HoldExpiredEvent`, `EventItem` in `Contracts/Events/`
+- ✅ **8.3** Write `RabbitMqConnectionFactory` (static helper, auto-recovery enabled)
+- ✅ **8.4** Write `RabbitMqTopologyInitializer` — idempotent exchange + 3 queue declarations with bindings
+- ✅ **8.5** Write `RabbitMqHoldEventPublisher` — one channel per publish, fire-and-forget error handling
+- ✅ **8.6** Register `IConnection` (singleton), `RabbitMqHoldEventPublisher` in `Program.cs`
+- ✅ **8.7** Call `RabbitMqTopologyInitializer.InitializeAsync` at startup
+- ✅ **8.8** Wire publisher into:
+  - `HoldService.CreateHoldAsync` → `PublishHoldCreatedAsync` (after commit, fire-and-forget)
+  - `HoldService.ReleaseHoldAsync` → `PublishHoldReleasedAsync` (after cache invalidation, fire-and-forget)
+  - `HoldExpiryWorker` already had `PublishHoldExpiredAsync` — no change needed
+- ✅ **8.9** `[TEST]` `FireAndForget` test included in `RabbitMqPublisherTests` + wiring tests in `CreateHoldServiceTests` and `ReleaseHoldServiceTests`
 - ⬜ **8.10** Verify: create hold → RabbitMQ Management UI (`:15672`) → `hold.created.queue` has 1 message with correct JSON
 
 ---

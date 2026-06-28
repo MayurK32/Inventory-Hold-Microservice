@@ -3,6 +3,7 @@ using InventoryHold.Contracts.Settings;
 using InventoryHold.Domain.Cache;
 using InventoryHold.Domain.Entities;
 using InventoryHold.Domain.Exceptions;
+using InventoryHold.Domain.Messaging;
 using InventoryHold.Domain.Repositories;
 using InventoryHold.Domain.Transactions;
 using Microsoft.Extensions.Options;
@@ -16,7 +17,9 @@ public sealed class HoldService(
     ISettingsRepository settingsRepository,
     ITransactionFactory transactionFactory,
     IOptions<HoldSettings> holdSettings,
-    IInventoryCache cache)
+    IInventoryCache cache,
+    IHoldEventPublisher eventPublisher,
+    ILogger<HoldService> logger)
 {
     public async Task<Hold> CreateHoldAsync(CreateHoldRequest request, CancellationToken ct = default)
     {
@@ -34,7 +37,10 @@ public sealed class HoldService(
         {
             try
             {
-                return await AttemptCreateAsync(request, expirationMinutes, ct);
+                var created = await AttemptCreateAsync(request, expirationMinutes, ct);
+                try { await eventPublisher.PublishHoldCreatedAsync(created, ct); }
+                catch (Exception ex) { logger.LogError(ex, "Failed to publish HoldCreated for {HoldId}", created.Id); }
+                return created;
             }
             catch (MongoCommandException e) when (IsWriteConflict(e))
             {
@@ -74,6 +80,8 @@ public sealed class HoldService(
         await inventoryRepository.IncrementAsync(result.Items, ct);
         await cache.InvalidateInventoryAsync(ct);
         await cache.InvalidateHoldAsync(holdId, ct);
+        try { await eventPublisher.PublishHoldReleasedAsync(result, ct); }
+        catch (Exception ex) { logger.LogError(ex, "Failed to publish HoldReleased for {HoldId}", holdId); }
         return result;
     }
 

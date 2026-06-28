@@ -256,6 +256,40 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
 
 ---
 
+## Session 8 — 2026-06-28: Phase 8 RabbitMQ Publisher
+
+### PROMPT-021
+**Phase:** Planning — Phase 8
+**Tool:** Claude Code plan mode
+**Purpose:** Plan RabbitMQ publisher replacing `NullHoldEventPublisher` stub.
+**Prompt Summary:**
+> "plan phase 8"
+**Outcome:** Plan written covering:
+- Event DTOs in `Contracts/Events/` (HoldCreatedEvent, HoldReleasedEvent, HoldExpiredEvent, EventItem)
+- `RabbitMqConnectionFactory` static helper + `RabbitMqTopologyInitializer` (exchange + 3 queues + bindings)
+- `RabbitMqHoldEventPublisher` — one channel per publish, fire-and-forget error handling
+- `IHoldEventPublisher` + `ILogger<HoldService>` added to `HoldService` constructor; wired into `CreateHoldAsync` and `ReleaseHoldAsync`
+- 4 `RabbitMqPublisherTests` + 2 wiring tests → 66 total
+
+---
+
+### PROMPT-022
+**Phase:** Implementation — Phase 8 Execution
+**Tool:** Claude Code (Edit + Write + Bash)
+**Purpose:** Execute approved Phase 8 plan.
+**Prompt Summary:**
+> *(Plan approved — implementation proceeded automatically)*
+**Outcome:**
+- 4 event DTO records created in `Contracts/Events/`
+- `RabbitMqHoldEventPublisher`, `RabbitMqConnectionFactory`, `RabbitMqTopologyInitializer` created in `Infrastructure/Messaging/`
+- `RabbitMqPublisherTests` (4 tests) using `Mock<IConnection>` + `Mock<IChannel>` — body captured and deserialized to verify JSON fields and routing keys
+- `HoldService` constructor updated: `IHoldEventPublisher` + `ILogger<HoldService>` added as last two params; publish wired with try/catch in `CreateHoldAsync` and `ReleaseHoldAsync`
+- All 5 `HoldService` test classes updated with `_publisher.Object` + `NullLogger` constructor args
+- `Program.cs` updated: `NullHoldEventPublisher` replaced with `RabbitMqHoldEventPublisher`; `IConnection` singleton via `GetAwaiter().GetResult()`; topology init called at startup
+- `dotnet test` → **Passed: 66, Failed: 0** (60 Phase 2–7 + 6 Phase 8)
+
+---
+
 ## Session 7 — 2026-06-28: Phase 7 Inventory Endpoints
 
 ### PROMPT-019

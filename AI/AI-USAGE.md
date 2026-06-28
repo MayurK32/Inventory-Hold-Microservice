@@ -271,6 +271,26 @@ Domain entities have `private set` and no BsonAttributes. Options: (a) add BsonA
 
 ---
 
+## Phase 8 — RabbitMQ Publisher (TDD)
+
+**Files created:** `Contracts/Events/EventItem.cs`, `HoldCreatedEvent.cs`, `HoldReleasedEvent.cs`, `HoldExpiredEvent.cs`, `Infrastructure/Messaging/RabbitMqConnectionFactory.cs`, `RabbitMqTopologyInitializer.cs`, `RabbitMqHoldEventPublisher.cs`, `UnitTests/Infrastructure/RabbitMqPublisherTests.cs`
+**Files modified:** `WebApi/Services/HoldService.cs`, `WebApi/Program.cs`, `UnitTests/Application/CreateHoldServiceTests.cs`, `ReleaseHoldServiceTests.cs`, `GetHoldServiceTests.cs`, `ListHoldsServiceTests.cs`
+
+**Key design decisions:**
+- Event DTOs in `Contracts/Events/` (not Infrastructure) — outbound message shapes are contracts, not infrastructure details
+- One channel per publish — channels are lightweight and short-lived in RabbitMQ; avoids channel state management and thread-safety issues
+- Fire-and-forget via try/catch in `PublishAsync` private method — publish errors are logged at Error level but never rethrow. HTTP response and DB transaction are already complete before publish, so caller is unaffected
+- `IHoldEventPublisher` + `ILogger<HoldService>` added as last two constructor params to `HoldService` — DI injects both; tests pass `_publisher.Object` + `NullLogger<HoldService>.Instance`
+- `HoldExpiryWorker` already called `PublishHoldExpiredAsync` — no wiring change needed there
+- `RabbitMqTopologyInitializer` runs at startup after `DatabaseSeeder` — exchange and queues declared idempotently (safe to rerun)
+- `IConnection` registered as singleton via `GetAwaiter().GetResult()` in DI factory — acceptable at startup before requests begin
+
+**Verification:** `dotnet test` → **Passed: 66, Failed: 0** (60 Phase 2–7 + 4 RabbitMqPublisher + 2 wiring)
+
+**Pending:** 8.10 — manual verify messages appear in RabbitMQ Management UI at http://localhost:15672
+
+---
+
 ## Human Audit
 *(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
 

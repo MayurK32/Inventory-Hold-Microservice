@@ -5,9 +5,11 @@ using InventoryHold.Contracts.Settings;
 using InventoryHold.Domain.Cache;
 using InventoryHold.Domain.Entities;
 using InventoryHold.Domain.Exceptions;
+using InventoryHold.Domain.Messaging;
 using InventoryHold.Domain.Repositories;
 using InventoryHold.Domain.Transactions;
 using InventoryHold.WebApi.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -26,6 +28,7 @@ public class CreateHoldServiceTests
     private readonly Mock<ITransactionFactory>  _txFactory = new();
     private readonly Mock<IMongoTransaction>    _tx        = new();
     private readonly Mock<IInventoryCache>      _cache     = new();
+    private readonly Mock<IHoldEventPublisher>  _publisher = new();
     private readonly HoldService _service;
 
     private static readonly InventoryItem WidgetA = new()
@@ -42,7 +45,8 @@ public class CreateHoldServiceTests
 
         _service = new HoldService(
             _holds.Object, _inventory.Object, _settings.Object, _txFactory.Object,
-            Options.Create(new HoldSettings { ExpirationMinutes = 15 }), _cache.Object);
+            Options.Create(new HoldSettings { ExpirationMinutes = 15 }), _cache.Object,
+            _publisher.Object, NullLogger<HoldService>.Instance);
     }
 
     // Happy path
@@ -124,6 +128,20 @@ public class CreateHoldServiceTests
         _inventory.Verify(r => r.DecrementBatchAsync(
             It.IsAny<IReadOnlyList<HoldItem>>(), It.IsAny<IMongoTransaction>(), default),
             Times.Never);
+    }
+
+    // Event publishing
+
+    [Fact]
+    public async Task CreateHoldAsync_Success_PublishesHoldCreatedEvent()
+    {
+        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default)).ReturnsAsync(WidgetA);
+        _holds.Setup(r => r.InsertAsync(It.IsAny<Hold>(), _tx.Object, default))
+              .ReturnsAsync((Hold h, IMongoTransaction? _, CancellationToken _) => h);
+
+        await _service.CreateHoldAsync(new("John", [new("widget-a", 3)]), default);
+
+        _publisher.Verify(p => p.PublishHoldCreatedAsync(It.IsAny<Hold>(), default), Times.Once);
     }
 
     // Write conflict retry
