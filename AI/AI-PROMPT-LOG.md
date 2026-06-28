@@ -69,4 +69,34 @@ This file tracks all significant prompts, their purpose, and outcomes.
 
 ---
 
+---
+
+## Session 2 — 2026-06-28: Phase 0 Infrastructure Skeleton
+
+### PROMPT-005
+**Phase:** Implementation — Phase 0 Planning
+**Tool:** Claude Code plan mode (EnterPlanMode → ExitPlanMode)
+**Purpose:** Plan the docker-compose infrastructure skeleton before writing any .NET code.
+**Prompt Summary:**
+> "Create proper plan for phase 0"
+**Outcome:** Plan created covering `docker-compose.yml` (3 services), `.env`, `.gitignore`. During plan review, human questioned whether image versions were latest and compatible — AI verified and corrected to minor-pinned tags: `mongo:7.0`, `redis:7.4-alpine`, `rabbitmq:3.13-management`. Compatibility matrix with .NET 10 NuGet packages confirmed.
+
+---
+
+### PROMPT-006
+**Phase:** Implementation — Phase 0 Execution
+**Tool:** Claude Code (Write + Edit + Bash)
+**Purpose:** Execute the approved Phase 0 plan — create docker-compose.yml, .env, .gitignore, commit and push.
+**Prompt Summary:**
+> *(Plan approved — implementation proceeded automatically)*
+**Outcome:**
+- `docker-compose.yml` created with 3 services, health checks, named volume
+- `.env` created locally (not committed)
+- `.gitignore` created
+- **Human intervention:** Caught `.env` being staged for commit — corrected to `.env.example` pattern; `.env` added to `.gitignore`
+- `.env.example` created and committed instead
+- Committed as "Phase 0: docker-compose infrastructure skeleton"
+
+---
+
 *(Additional prompts will be logged here as the session progresses)*

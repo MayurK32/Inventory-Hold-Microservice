@@ -47,6 +47,27 @@ Full HLD covering system architecture, component diagram, all API endpoints, and
 
 ---
 
+## Phase 0 — Infrastructure Skeleton
+
+**Goal:** Get all 3 infrastructure services (MongoDB, Redis, RabbitMQ) running and healthy in Docker before writing any .NET code. Validate the environment first.
+
+**Planning approach:**
+- Used Claude Code plan mode to design the docker-compose structure
+- Questioned image version choices — AI initially proposed unpinned tags (`mongo:7`, `redis:7-alpine`, `rabbitmq:3-management`)
+- Human caught the version pinning issue; AI corrected to minor-version pins (`mongo:7.0`, `redis:7.4-alpine`, `rabbitmq:3.13-management`) with explicit compatibility verification against .NET 10 NuGet packages
+- Human caught `.env` commit mistake — AI had planned to commit it with dev defaults. Corrected: `.env` excluded via `.gitignore`, `.env.example` committed instead
+
+**Files created:**
+- `docker-compose.yml` — 3 services with health checks, named volume `mongo_data`, `api` service deferred to Phase 1
+- `.env.example` — all required environment variables as a setup template
+- `.gitignore` — .NET + Node + Docker ignore rules; `.env` explicitly excluded
+
+**Human decisions that overrode AI defaults:**
+1. Version pinning — AI used floating minor tags; human required minor-pinned tags
+2. `.env` not committed — AI planned to commit it; human rejected; switched to `.env.example` pattern
+
+---
+
 ## Human Audit
 *(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
 
