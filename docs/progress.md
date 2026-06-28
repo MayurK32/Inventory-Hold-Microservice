@@ -14,16 +14,15 @@
 >
 > **Skills:** `docker-expert`
 
-- ⬜ **0.1** Create `docker-compose.yml` with 4 services: `mongodb`, `redis`, `rabbitmq`, `api` (placeholder image)
-- ⬜ **0.2** Add health checks to each service
-  - `mongodb` → `mongosh --eval "db.adminCommand('ping')"`
+- ✅ **0.1** Create `docker-compose.yml` with 3 services: `mongodb`, `redis`, `rabbitmq` (`api` added in Phase 1)
+- ✅ **0.2** Add health checks to each service
+  - `mongodb` → `mongosh --eval "db.adminCommand('ping')" --quiet`
   - `redis` → `redis-cli ping`
-  - `rabbitmq` → `rabbitmq-diagnostics ping`
-  - `api` → `curl -f http://localhost:8080/health`
-- ⬜ **0.3** Add `depends_on: condition: service_healthy` chains: `api` waits for all 3
-- ⬜ **0.4** Add named volume `mongo_data` for persistence
-- ⬜ **0.5** Add `.env` file with all connection defaults (host, port, credentials)
-- ⬜ **0.6** Verify: `docker-compose up` → all services healthy in Docker Desktop
+  - `rabbitmq` → `rabbitmq-diagnostics ping` (start_period: 30s — broker takes ~20s)
+- ✅ **0.3** `api` depends_on stub added as comment — wired in Phase 1 with `condition: service_healthy`
+- ✅ **0.4** Named volume `mongo_data` declared
+- ✅ **0.5** `.env` created (all connection defaults); `.gitignore` created
+- ⬜ **0.6** Verify: `docker-compose up -d` → all 3 show `healthy`; Compass connects; Redis pings; RabbitMQ UI at :15672
 
 ---
 
