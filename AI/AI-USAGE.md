@@ -101,6 +101,114 @@ Full HLD covering system architecture, component diagram, all API endpoints, and
 
 ---
 
+## Phase 2 — Domain Layer (TDD)
+
+**Goal:** Pure C# domain model with zero infrastructure dependencies. Establish all invariants and interface contracts that every later phase depends on.
+
+**Planning approach:**
+- Used Claude Code plan mode; AI read progress.md, database-design.md, ddd-tactical-patterns skill, and mongodb-inventory-hold skill to derive exact entity shapes and interface signatures
+- Key design decision: defined `IMongoTransaction` + `ITransactionFactory` as pure Domain abstractions so repository interfaces don't reference `IClientSessionHandle` (MongoDB.Driver) — preserves strict layer boundaries
+
+**TDD flow:**
+1. Wrote test files first (red — compile error until implementation added)
+2. Wrote exceptions → entities → interfaces (green)
+3. `dotnet test` → 17/17 passed with no mocks, no Docker, no infrastructure
+
+**Files created (18 total):**
+
+| Layer | Files |
+|-------|-------|
+| UnitTests/Domain/ | `HoldItemTests.cs` (8 tests), `HoldTests.cs` (8 tests) |
+| Domain/Entities/ | `HoldStatus.cs`, `HoldItem.cs`, `Hold.cs`, `InventoryItem.cs`, `AppSetting.cs` |
+| Domain/Exceptions/ | `DomainException.cs`, `InsufficientStockException.cs`, `HoldNotFoundException.cs`, `HoldTerminatedException.cs` |
+| Domain/Transactions/ | `IMongoTransaction.cs`, `ITransactionFactory.cs` |
+| Domain/Repositories/ | `IHoldRepository.cs`, `IInventoryRepository.cs`, `ISettingsRepository.cs` |
+| Domain/Messaging/ | `IHoldEventPublisher.cs` |
+| Domain/Cache/ | `IInventoryCache.cs` |
+
+**Key invariants enforced:**
+- `HoldItem`: productId non-empty, productName non-empty, quantity ≥ 1 (throws `DomainException` on violation)
+- `Hold.Create`: items list non-empty; Id is a valid GUID; expiresAt = createdAt + expirationMinutes
+- Status transitions: Active → Released OR Active → Expired (one-way); double transition throws `HoldTerminatedException`; Expired hold cannot be Released
+- `InventoryItem.HeldQuantity`: computed (`TotalQuantity - AvailableQuantity`), never stored
+
+**Verification:** `dotnet test` → Passed: 17, Failed: 0
+
+---
+
+## Phase 3 — MongoDB Infrastructure (TDD)
+
+**Goal:** Implement the repository interfaces from Phase 2 against MongoDB, wire DI, create indexes and seed data. All tests mock `IMongoCollection<T>` — no Docker required.
+
+**Key design decision — Domain/Infrastructure boundary:**
+Domain entities have `private set` and no BsonAttributes. Options: (a) add BsonAttributes to domain (leaks MongoDB.Driver into Domain project), (b) create separate Infrastructure document models. Chose (b): `HoldDocument`, `InventoryDocument`, `AppSettingDocument` in `Infrastructure/Persistence/Documents/` carry all BsonAttributes; repositories map to/from domain entities.
+
+**Domain patch:** Added `Hold.Reconstruct(...)` static method — reconstructs a `Hold` from stored data without re-running business validation. Works because a `static` method inside `Hold` can access `private Hold()` constructor and `private set` properties via object initializer.
+
+**Transaction boundary:** `MongoTransaction` wraps `IClientSessionHandle`; exposes it `internal` so repositories in the same assembly extract it via `(t as MongoTransaction)?.Session` — MongoDB types never leak into Domain.
+
+**Files created (12 total):**
+
+| Layer | Files |
+|-------|-------|
+| Domain/Entities/ | `Hold.cs` (patch: +Reconstruct) |
+| Infrastructure/Persistence/Documents/ | `HoldDocument.cs` (+HoldItemDocument), `InventoryDocument.cs`, `AppSettingDocument.cs` |
+| Infrastructure/Persistence/ | `CollectionIndexInitializer.cs`, `DatabaseSeeder.cs`, `MongoHoldRepository.cs`, `MongoInventoryRepository.cs`, `MongoSettingsRepository.cs` |
+| Infrastructure/Transactions/ | `MongoTransaction.cs`, `MongoTransactionFactory.cs` |
+| UnitTests/Infrastructure/ | `DatabaseSeederTests.cs`, `MongoInventoryRepositoryTests.cs`, `MongoHoldRepositoryTests.cs` |
+
+**Verification:** `dotnet test` → Passed: 31, Failed: 0 (17 Phase 2 + 14 Phase 3)
+
+**Pending:** 3.5.2 — manual verify via mongosh after `docker-compose up -d` (indexes + 5 seed products)
+
+---
+
+## Phase 4 — POST /api/holds (TDD)
+
+**Goal:** The riskiest endpoint fully working — multi-document transaction, write conflict retry (3× with 50ms delay), all-or-nothing stock validation with aggregated `failures[]`, and RFC 7807 ProblemDetails error mapping.
+
+**Key design decisions:**
+- `HoldService` placed in `WebApi/Services/` — no separate Application project (deliberate simplification for 5-project assignment; UnitTests.csproj already referenced WebApi)
+- `DomainExceptionHandler` implements `IExceptionHandler` (.NET 8+ DI-registered handler) — cleaner than lambda-based `UseExceptionHandler`
+- DTOs (`CreateHoldRequest`, `HoldResponse`) kept as pure records in `Contracts` with no Domain dependency — mapping logic in endpoint
+- `ProductNotFoundException` and `StockUnavailableException` added to Domain so middleware has a consistent exception hierarchy to match
+
+**TDD flow:**
+1. Wrote `CreateHoldServiceTests.cs` (8 tests, RED — `HoldService` didn't exist)
+2. Implemented `HoldService.cs` (GREEN — all 8 pass)
+3. Wired middleware, endpoint, Program.cs
+
+**Files created (8 total):**
+
+| Layer | Files |
+|-------|-------|
+| Domain/Exceptions/ | `ProductNotFoundException.cs`, `StockUnavailableException.cs` |
+| Contracts/Requests/ | `CreateHoldRequest.cs` |
+| Contracts/Responses/ | `HoldResponse.cs` |
+| WebApi/Services/ | `HoldService.cs` |
+| WebApi/Middleware/ | `DomainExceptionHandler.cs` |
+| WebApi/Endpoints/ | `HoldEndpoints.cs` |
+| UnitTests/Application/ | `CreateHoldServiceTests.cs` (8 tests) |
+
+**Non-obvious bug caught during execution:**
+`when (e.Code == 112)` exception filter silently evaluates to `false` when `MongoCommandException.Code` property throws internally (BsonDocument key access in MongoDB.Driver 3.9.0). Exception filters that throw are treated as `false` in C# — no error, just silent skip. Fixed by reordering: check `e.Message.Contains("WriteConflict")` first (short-circuits before `e.Code` is evaluated). Production MongoDB write conflict responses always include "WriteConflict" in the error message, so no behavior change in production.
+
+**Infrastructure fix required:** MongoDB standalone does not support multi-document transactions. `docker-compose.yml` updated to start MongoDB as a single-node replica set (`--replSet rs0`). Healthcheck updated to auto-run `rs.initiate()` on first boot. Existing standalone volume wiped (`docker-compose down -v`) and recreated. Seeder re-ran automatically on next `dotnet run`.
+
+**Verification:** `dotnet test` → Passed: 39, Failed: 0 (31 Phase 2+3 + 8 Phase 4)
+
+**Manual test results (4.2.5) — all 5 scenarios verified via Scalar UI:**
+
+| # | Scenario | Request | Expected | Result |
+|---|----------|---------|----------|--------|
+| 1 | Happy path | `POST /api/holds` — widget-a qty 3, customerName Alice | 201 Created, Location header, status Active, expiresAt +15 min, productName "Widget A" | ✅ |
+| 2 | Insufficient stock | widget-a qty 999 | 409, `data.failures[0]` with productId / requested: 999 / available: 50 | ✅ |
+| 3 | Product not found | productId "does-not-exist" qty 1 | 404, title containing "not found" | ✅ |
+| 4 | Validation error | empty items array | 422, title "Hold must have at least one item." | ✅ |
+| 5 | Inventory decrement | widget-a qty 49 after hold of qty 3 | 409 insufficient stock (47 remaining, not 50) | ✅ |
+
+---
+
 ## Human Audit
 *(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
 

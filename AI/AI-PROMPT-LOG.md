@@ -132,4 +132,93 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
 
 ---
 
+### PROMPT-009
+**Phase:** Implementation — Phase 2 Planning
+**Tool:** Claude Code plan mode (EnterPlanMode → ExitPlanMode)
+**Purpose:** Plan the Domain Layer (TDD) phase before writing any code. Read progress.md Phase 2 tasks, database-design.md holds schema + state machine, ddd-tactical-patterns skill, and mongodb-inventory-hold skill to derive exact entity shapes, invariants, interface signatures, and test cases.
+**Prompt Summary:**
+> "plan phase 2"
+**Outcome:** Plan written covering TDD order (tests → implementation), all 17 files to create, exact test cases for HoldItem (4 tests) and Hold (8 tests), exception hierarchy, `IMongoTransaction`/`ITransactionFactory` abstraction (to keep MongoDB types out of Domain), and all 5 interface contracts. Key design decision: repository interfaces take `IMongoTransaction?` — a pure Domain abstraction — instead of `IClientSessionHandle` (MongoDB.Driver type) to preserve layer boundaries.
+
+---
+
+### PROMPT-010
+**Phase:** Implementation — Phase 2 Execution
+**Tool:** Claude Code (Write + Edit + PowerShell)
+**Purpose:** Execute the approved Phase 2 plan — TDD domain layer with zero infrastructure dependencies.
+**Prompt Summary:**
+> *(Plan approved — implementation proceeded automatically)*
+**Outcome:**
+- 2 test files: `UnitTests/Domain/HoldItemTests.cs` (8 tests), `UnitTests/Domain/HoldTests.cs` (8 tests)
+- 4 exception classes in `Domain/Exceptions/`: `DomainException`, `InsufficientStockException` (with `StockFailure` record), `HoldNotFoundException`, `HoldTerminatedException`
+- 5 entity files in `Domain/Entities/`: `HoldStatus` (enum), `HoldItem` (record, self-validating), `Hold` (class, factory + state machine), `InventoryItem` (class, computed `HeldQuantity`), `AppSetting` (class)
+- 2 transaction abstractions in `Domain/Transactions/`: `IMongoTransaction`, `ITransactionFactory`
+- 3 repository interfaces in `Domain/Repositories/`: `IHoldRepository`, `IInventoryRepository`, `ISettingsRepository`
+- 1 messaging interface in `Domain/Messaging/`: `IHoldEventPublisher`
+- 1 cache interface in `Domain/Cache/`: `IInventoryCache`
+- `dotnet test` → **Passed: 17, Failed: 0** — no mocks, no Docker, pure in-memory
+
+### PROMPT-011
+**Phase:** Implementation — Phase 3 Planning
+**Tool:** Claude Code plan mode (EnterPlanMode → ExitPlanMode)
+**Purpose:** Plan the MongoDB Infrastructure (TDD) phase. Read progress.md Phase 3 tasks, mongodb-inventory-hold skill (exact BSON schemas, C# entity mappings, atomic operation patterns), and assessed the Domain/Infrastructure boundary problem — domain entities have `private set` and no BsonAttributes.
+**Prompt Summary:**
+> "Plan phase 3"
+**Outcome:** Plan written covering: (1) `Hold.Reconstruct(...)` domain patch to allow Infrastructure to hydrate domain entities from stored BSON without re-running validation; (2) separate `HoldDocument`/`InventoryDocument`/`AppSettingDocument` models in Infrastructure with BsonAttributes — keeps MongoDB.Driver out of Domain; (3) `MongoTransaction` + `MongoTransactionFactory` implementing domain `IMongoTransaction`/`ITransactionFactory` — `Session` property exposed `internal` so repositories in same assembly can extract it without leaking to domain; (4) all repository implementations with mocked `IMongoCollection<T>` tests.
+
+---
+
+### PROMPT-012
+**Phase:** Implementation — Phase 3 Execution
+**Tool:** Claude Code (Edit + Write + PowerShell)
+**Purpose:** Execute the approved Phase 3 plan — MongoDB infrastructure layer with TDD.
+**Prompt Summary:**
+> *(Plan approved — implementation proceeded automatically)*
+**Outcome:**
+- Domain patch: `Hold.Reconstruct(...)` static method added — uses `new Hold { ... }` object initializer inside the class (can access `private set` from within the same class)
+- 3 document models with full BsonAttributes in `Infrastructure/Persistence/Documents/`
+- `MongoTransaction` + `MongoTransactionFactory` in `Infrastructure/Transactions/`
+- `CollectionIndexInitializer` — idempotent, `holds` gets 2 compound indexes, `inventory` gets unique `productId` index
+- `DatabaseSeeder` — count → 0? insert 5 seed products; `SeedItems` exposed as `static readonly` for reuse
+- `MongoInventoryRepository` + `MongoHoldRepository` + `MongoSettingsRepository` — all interfaces implemented
+- `Program.cs` wired: `IMongoClient` → `IMongoDatabase` → 3 typed collections → repositories → startup pipeline
+- `dotnet test` → **Passed: 31, Failed: 0** (17 Phase 2 + 14 Phase 3), 0 infrastructure needed
+- One nullable CS8620 warning on Moq nullability for `FindOneAndUpdateAsync → null` setup — warning only, test passes
+
+---
+
+## Session 4 — 2026-06-28: Phase 4 POST /api/holds
+
+### PROMPT-013
+**Phase:** Implementation — Phase 4 Planning
+**Tool:** Claude Code plan mode (EnterPlanMode → ExitPlanMode)
+**Purpose:** Plan the POST /api/holds endpoint — the most complex in the service. Read progress.md Phase 4 tasks, domain entities/interfaces, HoldSettings, hld.md sequence diagrams, and skills (mongodb-inventory-hold, error-handling-patterns, dotnet-backend-patterns) to derive service flow, retry logic, exception hierarchy, and test structure.
+**Prompt Summary:**
+> "plan phase 4, check docs folder check AI folder check progress.md and skills and then plan"
+**Outcome:** Plan written covering:
+- 2 new Domain exceptions: `ProductNotFoundException`, `StockUnavailableException`
+- Contracts DTOs: `CreateHoldRequest`, `HoldResponse` (pure records, no domain dependency)
+- `HoldService` in `WebApi/Services/` — 8 TDD tests across happy path, validation, stock errors, write conflict retry
+- `DomainExceptionHandler` implementing `IExceptionHandler` (.NET 8+ pattern) — maps all domain exceptions to RFC 7807 ProblemDetails
+- `HoldEndpoints.cs` — `POST /api/holds` returning 201 Created with Location header
+- Key design: `IExceptionHandler` registered via DI + parameterless `UseExceptionHandler()` in .NET 10
+
+---
+
+### PROMPT-014
+**Phase:** Implementation — Phase 4 Execution
+**Tool:** Claude Code (Write + Edit + PowerShell)
+**Purpose:** Execute the approved Phase 4 plan — TDD service layer with full endpoint wiring.
+**Prompt Summary:**
+> *(Plan approved — implementation proceeded automatically)*
+**Outcome:**
+- `ProductNotFoundException` + `StockUnavailableException` added to `Domain/Exceptions/`
+- `CreateHoldRequest` + `HoldResponse` added to `Contracts/Requests/` and `Contracts/Responses/`
+- `CreateHoldServiceTests.cs` — 8 tests written first (RED), then `HoldService.cs` written to pass (GREEN)
+- `DomainExceptionHandler` — `IExceptionHandler` implementation mapping 5 domain exception types
+- `HoldEndpoints.cs` — `MapPost` with typed `Produces<T>` declarations
+- `Program.cs` wired: `AddExceptionHandler<DomainExceptionHandler>()` + `AddScoped<HoldService>()` + `MapHoldEndpoints()`
+- `dotnet test` → **Passed: 39, Failed: 0** (31 Phase 2+3 + 8 Phase 4)
+- **Non-obvious fix logged:** `when (e.Code == 112)` exception filter silently evaluates to false if `MongoCommandException.Code` property access throws internally (BsonDocument key access). Fixed by checking `e.Message.Contains("WriteConflict")` first — short-circuits before `e.Code` is evaluated. Production behavior unchanged since real write conflicts always have "WriteConflict" in the message.
+
 *(Additional prompts will be logged here as the session progresses)*

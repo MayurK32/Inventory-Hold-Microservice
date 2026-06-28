@@ -50,50 +50,50 @@
 > **Skills:** `ddd-tactical-patterns` · `csharp-pro` · `clean-code`
 
 ### 2.1 — HoldItem Value Object
-- ⬜ **2.1.1** `[TEST]` Write `HoldItemTests`: quantity must be ≥ 1, productId must not be empty, productName must not be empty
-- ⬜ **2.1.2** Write `HoldItem` record in `Domain/Entities/HoldItem.cs` — make tests pass
+- ✅ **2.1.1** `[TEST]` Write `HoldItemTests`: quantity must be ≥ 1, productId must not be empty, productName must not be empty
+- ✅ **2.1.2** Write `HoldItem` record in `Domain/Entities/HoldItem.cs` — make tests pass
 
 ### 2.2 — HoldStatus Enum
-- ⬜ **2.2.1** Write `HoldStatus` enum: `Active`, `Released`, `Expired` in `Domain/Entities/HoldStatus.cs`
+- ✅ **2.2.1** Write `HoldStatus` enum: `Active`, `Released`, `Expired` in `Domain/Entities/HoldStatus.cs`
 
 ### 2.3 — Hold Aggregate
-- ⬜ **2.3.1** `[TEST]` Write `HoldTests.Create`:
+- ✅ **2.3.1** `[TEST]` Write `HoldTests.Create`:
   - Hold created with correct `Id` (valid GUID), `status: Active`, `createdAt` set
   - `expiresAt = createdAt + expirationMinutes`
   - Empty items list throws `DomainException`
   - `customerName` can be null
-- ⬜ **2.3.2** `[TEST]` Write `HoldTests.StatusTransitions`:
+- ✅ **2.3.2** `[TEST]` Write `HoldTests.StatusTransitions`:
   - `MarkReleased()` sets `status = Released`, `releasedAt` set, calling again throws
   - `MarkExpired()` sets `status = Expired`, `expiredAt` set, calling again throws
   - Cannot mark Expired hold as Released
-- ⬜ **2.3.3** Write `Hold` entity in `Domain/Entities/Hold.cs` — make all tests pass
-- ⬜ **2.3.4** Write domain exceptions: `DomainException`, `InsufficientStockException`, `HoldNotFoundException`, `HoldTerminatedException` in `Domain/Exceptions/`
+- ✅ **2.3.3** Write `Hold` entity in `Domain/Entities/Hold.cs` — make all tests pass
+- ✅ **2.3.4** Write domain exceptions: `DomainException`, `InsufficientStockException`, `HoldNotFoundException`, `HoldTerminatedException` in `Domain/Exceptions/`
 
 ### 2.4 — Repository & Service Interfaces
-- ⬜ **2.4.1** Write `IHoldRepository` in `Domain/Repositories/`:
+- ✅ **2.4.1** Write `IHoldRepository` in `Domain/Repositories/`:
   ```
   GetByIdAsync, GetPagedAsync, InsertAsync,
   AtomicTransitionAsync (findOneAndUpdate with status guard),
   GetExpiredActiveAsync
   ```
-- ⬜ **2.4.2** Write `IInventoryRepository` in `Domain/Repositories/`:
+- ✅ **2.4.2** Write `IInventoryRepository` in `Domain/Repositories/`:
   ```
   GetAllAsync, GetByProductIdAsync,
   DecrementBatchAsync (within transaction),
   IncrementAsync, ResetAllAsync
   ```
-- ⬜ **2.4.3** Write `ISettingsRepository`: `GetExpirationMinutesAsync`
-- ⬜ **2.4.4** Write `IHoldEventPublisher` in `Domain/Messaging/`:
+- ✅ **2.4.3** Write `ISettingsRepository`: `GetExpirationMinutesAsync`
+- ✅ **2.4.4** Write `IHoldEventPublisher` in `Domain/Messaging/`:
   ```
   PublishHoldCreatedAsync, PublishHoldReleasedAsync, PublishHoldExpiredAsync
   ```
-- ⬜ **2.4.5** Write `IInventoryCache` in `Domain/Cache/`:
+- ✅ **2.4.5** Write `IInventoryCache` in `Domain/Cache/`:
   ```
   GetInventoryAsync, SetInventoryAsync, InvalidateInventoryAsync,
   GetHoldAsync, SetHoldAsync, InvalidateHoldAsync,
   GetExpirationMinutesAsync, SetExpirationMinutesAsync
   ```
-- ⬜ **2.4.6** Verify: `dotnet test` — all domain tests pass, 0 infrastructure needed
+- ✅ **2.4.6** Verify: `dotnet test` — 17 passed (HoldItemTests x8 + HoldTests x8 + PlaceholderTest x1), 0 infrastructure needed
 
 ---
 
@@ -104,37 +104,37 @@
 > **Skills:** `mongodb-inventory-hold` · `dotnet-backend-patterns` · `error-handling-patterns`
 
 ### 3.1 — MongoDB Setup
-- ⬜ **3.1.1** Register `IMongoClient`, `IMongoDatabase`, and 3 typed collections in `Program.cs` via DI
-- ⬜ **3.1.2** Write `CollectionIndexInitializer` — declares all indexes on startup (idempotent):
+- ✅ **3.1.1** Register `IMongoClient`, `IMongoDatabase`, and 3 typed collections in `Program.cs` via DI
+- ✅ **3.1.2** Write `CollectionIndexInitializer` — declares all indexes on startup (idempotent):
   - `holds`: `{ status:1, expiresAt:1 }` and `{ status:1, createdAt:-1 }`
   - `inventory`: `{ productId:1 }` unique
-- ⬜ **3.1.3** Call index initializer and seeder from `Program.cs` startup pipeline
+- ✅ **3.1.3** Call index initializer and seeder from `Program.cs` startup pipeline
 
 ### 3.2 — Database Seeder
-- ⬜ **3.2.1** `[TEST]` Write `DatabaseSeederTests`:
+- ✅ **3.2.1** `[TEST]` Write `DatabaseSeederTests`:
   - Seeder inserts 5 products when inventory collection is empty
   - Seeder skips when inventory already has documents
-- ⬜ **3.2.2** Write `DatabaseSeeder` with seed data (widget-a:50, widget-b:30, gadget-x:20, device-z:10, part-001:100) — make tests pass
+- ✅ **3.2.2** Write `DatabaseSeeder` with seed data (widget-a:50, widget-b:30, gadget-x:20, device-z:10, part-001:100) — make tests pass
 
 ### 3.3 — MongoInventoryRepository
-- ⬜ **3.3.1** `[TEST]` Write `MongoInventoryRepositoryTests`:
+- ✅ **3.3.1** `[TEST]` Write `MongoInventoryRepositoryTests`:
   - `GetAllAsync` returns all products with computed `heldQuantity`
   - `GetByProductIdAsync` returns correct item; null when not found
   - `DecrementBatchAsync` applies `$inc -qty` for each item
   - `IncrementAsync` applies `$inc +qty` correctly
-- ⬜ **3.3.2** Write `MongoInventoryRepository` — implement all methods — make tests pass
+- ✅ **3.3.2** Write `MongoInventoryRepository` — implement all methods — make tests pass
 
 ### 3.4 — MongoHoldRepository
-- ⬜ **3.4.1** `[TEST]` Write `MongoHoldRepositoryTests`:
+- ✅ **3.4.1** `[TEST]` Write `MongoHoldRepositoryTests`:
   - `GetByIdAsync` returns hold by GUID; null when not found
   - `GetPagedAsync` respects status filter, page, pageSize; returns correct total
   - `InsertAsync` inserts document and returns with `_id` set
   - `AtomicTransitionAsync` returns updated doc when status matches; null when guard fails
   - `GetExpiredActiveAsync` returns only Active holds past `expiresAt`
-- ⬜ **3.4.2** Write `MongoHoldRepository` — implement all methods — make tests pass
+- ✅ **3.4.2** Write `MongoHoldRepository` — implement all methods — make tests pass
 
 ### 3.5 — MongoSettingsRepository
-- ⬜ **3.5.1** Write `MongoSettingsRepository.GetExpirationMinutesAsync` — reads `HoldExpirationMinutes` from settings collection; falls back to appsettings default
+- ✅ **3.5.1** Write `MongoSettingsRepository.GetExpirationMinutesAsync` — reads `HoldExpirationMinutes` from settings collection; falls back to appsettings default
 - ⬜ **3.5.2** Verify with MongoDB Compass: indexes created, 5 seed products visible
 
 ---
@@ -146,41 +146,41 @@
 > **Skills:** `mongodb-inventory-hold` · `api-endpoint-builder` · `error-handling-patterns` · `dotnet-backend`
 
 ### 4.1 — Hold Creation Service
-- ⬜ **4.1.1** `[TEST]` Write `CreateHoldServiceTests.HappyPath`:
+- ✅ **4.1.1** `[TEST]` Write `CreateHoldServiceTests.HappyPath`:
   - Given all items in stock, creates hold, decrements inventory, returns hold
   - Hold has correct `expiresAt` (now + expirationMinutes)
   - Items array contains denormalized `productName` from inventory
-- ⬜ **4.1.2** `[TEST]` Write `CreateHoldServiceTests.Validation`:
+- ✅ **4.1.2** `[TEST]` Write `CreateHoldServiceTests.Validation`:
   - `422` when `items` is empty
   - `422` when any `quantity <= 0`
   - `422` when `pageSize > 100` (list endpoint guard, add here for shared validation)
-- ⬜ **4.1.3** `[TEST]` Write `CreateHoldServiceTests.StockErrors`:
+- ✅ **4.1.3** `[TEST]` Write `CreateHoldServiceTests.StockErrors`:
   - `404` when productId does not exist in inventory
   - `409` when `availableQty < requested` — response includes `failures[]` list with productId, requested, available per failing item
   - All-or-nothing: if one item fails, no inventory is mutated
-- ⬜ **4.1.4** `[TEST]` Write `CreateHoldServiceTests.WriteConflict`:
+- ✅ **4.1.4** `[TEST]` Write `CreateHoldServiceTests.WriteConflict`:
   - On `MongoCommandException` code 112: retries up to 3× with 50ms backoff
   - After 3 failures: returns `409` with "Stock temporarily unavailable" message
   - Does NOT retry on other exception types
-- ⬜ **4.1.5** Write `HoldService.CreateHoldAsync` — make all tests pass
+- ✅ **4.1.5** Write `HoldService.CreateHoldAsync` — make all tests pass
   - Transaction: Phase 1 validate all → Phase 2 decrement + insert
   - Wrap in write conflict retry loop (catch code 112 only)
-- ⬜ **4.1.6** Register `HoldService` in DI
+- ✅ **4.1.6** Register `HoldService` in DI
 
 ### 4.2 — POST Endpoint
-- ⬜ **4.2.1** Write `CreateHoldRequest` record in `Contracts/Requests/` with `customerName?`, `items[]`
-- ⬜ **4.2.2** Write `HoldResponse` record in `Contracts/Responses/` with all hold fields
-- ⬜ **4.2.3** Write `POST /api/holds` minimal API endpoint in `WebApi/Endpoints/HoldEndpoints.cs`
+- ✅ **4.2.1** Write `CreateHoldRequest` record in `Contracts/Requests/` with `customerName?`, `items[]`
+- ✅ **4.2.2** Write `HoldResponse` record in `Contracts/Responses/` with all hold fields
+- ✅ **4.2.3** Write `POST /api/holds` minimal API endpoint in `WebApi/Endpoints/HoldEndpoints.cs`
   - Map `201 Created` with `Location: /api/holds/{holdId}`
   - Map service exceptions to correct HTTP codes via exception middleware
-- ⬜ **4.2.4** Write `ExceptionMiddleware` mapping domain exceptions → RFC 7807 `ProblemDetails`:
+- ✅ **4.2.4** Write `ExceptionMiddleware` mapping domain exceptions → RFC 7807 `ProblemDetails`:
   - `DomainException` → 422
   - `InsufficientStockException` → 409 with `failures` extension
   - `HoldNotFoundException` → 404
   - `HoldTerminatedException` → 410
   - Write conflict exhausted → 409
   - Unhandled → 500 (sanitized message)
-- ⬜ **4.2.5** Manual test: `docker-compose up` → POST to `/api/holds` → `201 Created` with holdId
+- ✅ **4.2.5** Manual test: `docker-compose up` → POST to `/api/holds` → `201 Created` with holdId
 
 ---
 

@@ -1,0 +1,87 @@
+using InventoryHold.Contracts.Requests;
+using InventoryHold.Contracts.Settings;
+using InventoryHold.Domain.Entities;
+using InventoryHold.Domain.Exceptions;
+using InventoryHold.Domain.Repositories;
+using InventoryHold.Domain.Transactions;
+using Microsoft.Extensions.Options;
+using MongoDB.Driver;
+
+namespace InventoryHold.WebApi.Services;
+
+public sealed class HoldService(
+    IHoldRepository holdRepository,
+    IInventoryRepository inventoryRepository,
+    ISettingsRepository settingsRepository,
+    ITransactionFactory transactionFactory,
+    IOptions<HoldSettings> holdSettings)
+{
+    public async Task<Hold> CreateHoldAsync(CreateHoldRequest request, CancellationToken ct = default)
+    {
+        if (request.Items is null || request.Items.Count == 0)
+            throw new DomainException("Hold must have at least one item.");
+
+        foreach (var item in request.Items)
+            if (item.Quantity <= 0)
+                throw new DomainException($"Quantity for '{item.ProductId}' must be at least 1.");
+
+        var expirationMinutes = await settingsRepository
+            .GetExpirationMinutesAsync(holdSettings.Value.ExpirationMinutes, ct);
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                return await AttemptCreateAsync(request, expirationMinutes, ct);
+            }
+            catch (MongoCommandException e) when (IsWriteConflict(e))
+            {
+                if (attempt == 2) throw new StockUnavailableException();
+                await Task.Delay(50, ct);
+            }
+        }
+
+        throw new StockUnavailableException();
+    }
+
+    // Message check first: if e.Code throws internally, the filter would silently evaluate to false.
+    // Code 112 = WriteConflict; message check covers Driver 3.x where Code may be inaccessible.
+    private static bool IsWriteConflict(MongoCommandException e) =>
+        e.Message.Contains("WriteConflict", StringComparison.OrdinalIgnoreCase) || e.Code == 112;
+
+    private async Task<Hold> AttemptCreateAsync(
+        CreateHoldRequest request, int expirationMinutes, CancellationToken ct)
+    {
+        await using var tx = await transactionFactory.BeginAsync(ct);
+        try
+        {
+            var failures = new List<StockFailure>();
+            var holdItems = new List<HoldItem>();
+
+            foreach (var item in request.Items)
+            {
+                var inv = await inventoryRepository.GetByProductIdAsync(item.ProductId, ct);
+                if (inv is null) throw new ProductNotFoundException(item.ProductId);
+
+                if (inv.AvailableQuantity < item.Quantity)
+                    failures.Add(new StockFailure(item.ProductId, item.Quantity, inv.AvailableQuantity));
+                else
+                    holdItems.Add(new HoldItem(item.ProductId, inv.Name, item.Quantity));
+            }
+
+            if (failures.Count > 0) throw new InsufficientStockException(failures);
+
+            var hold = Hold.Create(request.CustomerName, holdItems, expirationMinutes);
+            await inventoryRepository.DecrementBatchAsync(holdItems, tx, ct);
+            var inserted = await holdRepository.InsertAsync(hold, tx, ct);
+
+            await tx.CommitAsync(ct);
+            return inserted;
+        }
+        catch
+        {
+            await tx.AbortAsync(ct);
+            throw;
+        }
+    }
+}
