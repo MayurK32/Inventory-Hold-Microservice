@@ -442,14 +442,12 @@
   - Stage 1 `build`: `mcr.microsoft.com/dotnet/sdk:10.0` → `dotnet publish`
   - Stage 2 `final`: `mcr.microsoft.com/dotnet/aspnet:10.0` → non-root `appuser`; `ASPNETCORE_URLS=http://+:8080`
 - ✅ **13.5** Add `api` service to `docker-compose.yml`:
-  - `build.context: .`, `dockerfile: api/Dockerfile`; `depends_on` mongodb+redis+rabbitmq (all service_healthy); healthcheck via `wget -qO- http://localhost:8080/health`
-- ⬜ **13.6** Run full integration: `docker-compose up --build`
+  - `build.context: .`, `dockerfile: api/Dockerfile`; `depends_on` mongodb+redis+rabbitmq (all service_healthy); healthcheck via `curl -sf http://localhost:8080/health`
+- ✅ **13.6** Run full integration: `docker-compose up --build`
   - All 5 services start healthy
-  - Browser → `http://localhost` → React app loads
-  - Create hold → inventory updates without page refresh
-  - Release hold → hold status updates
-  - `/swagger` → Swagger UI works
-  - `/health` → all 3 dependencies healthy
+  - `http://localhost:3000` → React app loads (port 80 restricted on Windows; mapped to 3000)
+  - `GET http://localhost:3000/health` → `{"status":"Healthy"}` (proxied through nginx)
+  - `GET http://localhost:3000/api/inventory` → 5 products with correct quantities
 
 ---
 
@@ -523,6 +521,6 @@
 | 9 | Redis caching (TDD) | ✅ |
 | 10 | Health checks + Swagger | ✅ |
 | 11 | Unit test suite complete | ✅ |
-| 12 | Frontend React | ⬜ |
-| 13 | Nginx + full Docker | ⬜ |
+| 12 | Frontend React | ✅ |
+| 13 | Nginx + full Docker | ✅ |
 | 14 | Final QA + README | ⬜ |

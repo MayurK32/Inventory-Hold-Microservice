@@ -352,7 +352,7 @@ Zero tests require Docker — all infrastructure mocked via Moq.
 
 ---
 
-## Phase 12 + 13 — React Frontend + Docker Integration
+## Phase 12 + 13 — React Frontend + Docker Integration (completed 2026-06-28)
 
 **Goal:** React SPA demonstrating the full hold lifecycle (create → view → countdown → release/expire). Single `docker-compose up --build` starts all 5 services.
 

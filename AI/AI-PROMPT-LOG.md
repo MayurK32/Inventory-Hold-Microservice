@@ -460,3 +460,24 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
   - `rerender` from RTL loses providers — fixed `renderWithProviders` to use `{ wrapper: Wrapper }` option so `rerender` auto-wraps
   - Zustand store persists between tests — fixed with `beforeEach(() => useStore.setState({ activeOnlyFilter: true, currentPage: 1 }))` in HoldsList tests
   - CSS Module class names are mangled in test env — fixed with `.toMatch(/held/)` regex instead of exact `.toHaveClass('held')`
+
+---
+
+### PROMPT-028
+**Phase:** Debugging — Phase 13 Docker Integration (5 sequential build failures fixed)
+**Tool:** Claude Code (Read + Edit + Bash + Docker)
+**Purpose:** Fix all Docker build and startup failures after initial `docker-compose up -d`.
+**Prompt Summary:**
+> *(docker-compose up -d output showing addgroup not found)* / *(EBADPLATFORM error for @rolldown/binding-win32-x64-msvc)* / *(TS2769 test does not exist in UserConfigExport)* / *(API unhealthy — MongoDB localhost:27017 connection refused)* / *(wget not found in aspnet image)* / *(port 80 access forbidden on Windows)*
+**Outcome:** 6 issues found and fixed in sequence:
+
+| # | Error | Root Cause | Fix |
+|---|-------|-----------|-----|
+| 1 | `addgroup: not found` | `aspnet:10.0` is Debian, not Alpine | `api/Dockerfile`: `addgroup`/`adduser` → `groupadd`/`useradd` |
+| 2 | `EBADPLATFORM @rolldown/binding-win32-x64-msvc` | Win32-only package was a hard `dependencies` entry; Linux container refused it | `package.json`: moved to `optionalDependencies`; `npm install` regenerated lock file |
+| 3 | `TS2769: 'test' does not exist in type 'UserConfigExport'` | `/// <reference types="vitest" />` doesn't resolve in Docker `tsc -b` context (no vitest in `tsconfig.node.json` types array) | Split into clean `vite.config.ts` (build only) + `vitest.config.ts` using `import { defineConfig } from 'vitest/config'` which types `test` natively |
+| 4 | API crashes: MongoDB `localhost:27017 connection refused` | RS initiated with `host:'localhost:27017'`; MongoDB driver follows RS topology discovery and redirects to `localhost` inside API container | `appsettings.json`: added `?directConnection=true` to MongoDB URI (skips topology discovery); `docker-compose.yml`: RS initiation changed to `host:'mongodb:27017'` for clean deploys; `docker-compose down -v` to clear old RS volume |
+| 5 | API healthcheck fails: `wget: not found` | `mcr.microsoft.com/dotnet/aspnet:10.0` Debian image has neither `wget` nor `curl` by default | `api/Dockerfile`: `apt-get install -y curl`; `docker-compose.yml`: healthcheck switched to `["CMD", "curl", "-sf", "http://localhost:8080/health"]` |
+| 6 | `port 0.0.0.0:80 bind: access forbidden` | Port 80 requires admin elevation on Windows | `docker-compose.yml`: frontend ports changed from `"80:80"` to `"3000:80"` |
+
+**Final state:** All 5 containers healthy. `http://localhost:3000` → React app. `http://localhost:3000/health` → `{"status":"Healthy"}`. `http://localhost:3000/api/inventory` → 5 products.
