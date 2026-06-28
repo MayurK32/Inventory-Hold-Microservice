@@ -256,6 +256,40 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
 
 ---
 
+## Session 7 — 2026-06-28: Phase 7 Inventory Endpoints
+
+### PROMPT-019
+**Phase:** Planning — Phase 7
+**Tool:** Claude Code plan mode
+**Purpose:** Plan GET /api/inventory and POST /api/inventory/reset endpoints.
+**Prompt Summary:**
+> "plan phase 7"
+**Outcome:** Plan written covering:
+- `DeleteAllAsync` missing from `IHoldRepository` — must add to interface + `MongoHoldRepository`
+- New `InventoryService` (separate from `HoldService`) with `GetInventoryAsync` (cache-first) and `ResetInventoryAsync` (delete holds → reset inventory → flush cache → return fresh)
+- `InventoryItemResponse` contract: productId, name, totalQty, availableQty, heldQty
+- 6 TDD tests (3 GetInventory + 3 ResetInventory) → 60 total
+- `InventoryEndpoints.cs` with GET /api/inventory and POST /api/inventory/reset
+
+---
+
+### PROMPT-020
+**Phase:** Implementation — Phase 7 Execution
+**Tool:** Claude Code (Edit + Write + Bash)
+**Purpose:** Execute approved Phase 7 plan.
+**Prompt Summary:**
+> *(Plan approved — implementation proceeded automatically)*
+**Outcome:**
+- `IHoldRepository.DeleteAllAsync` added to interface; `MongoHoldRepository.DeleteAllAsync` implemented via `DeleteManyAsync(Filter.Empty)`
+- `InventoryItemResponse` record created in `Contracts/Responses/`
+- `GetInventoryServiceTests` (3) and `ResetInventoryServiceTests` (3) written first (RED)
+- `InventoryService` created — `GetInventoryAsync` cache-first, `ResetInventoryAsync` delete → reset → flush → DB fetch
+- `InventoryEndpoints.cs` created with GET and POST /reset; `ToResponse()` maps `HeldQuantity` computed property
+- `Program.cs` wired: `AddScoped<InventoryService>()` + `app.MapInventoryEndpoints()`
+- `dotnet test` → **Passed: 60, Failed: 0** (54 Phase 2–6 + 6 Phase 7)
+
+---
+
 ## Session 6 — 2026-06-28: Phase 6 GET & DELETE Endpoints
 
 ### PROMPT-017

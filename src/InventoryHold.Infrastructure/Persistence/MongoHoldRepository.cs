@@ -87,4 +87,7 @@ public sealed class MongoHoldRepository(IMongoCollection<HoldDocument> collectio
         var docs = await cursor.ToListAsync(ct);
         return docs.Select(d => d.ToDomain()).ToList();
     }
+
+    public async Task DeleteAllAsync(CancellationToken ct = default) =>
+        await collection.DeleteManyAsync(Builders<HoldDocument>.Filter.Empty, ct);
 }

@@ -253,17 +253,17 @@
 >
 > **Skills:** `api-endpoint-builder` · `mongodb-inventory-hold`
 
-- ⬜ **7.1** `[TEST]` Write `GetInventoryTests`:
+- ✅ **7.1** `[TEST]` Write `GetInventoryTests`:
   - Returns all 5 products with correct `heldQuantity = totalQty - availableQty`
   - Returns from Redis cache on second call
   - Cache populated after first DB read
-- ⬜ **7.2** Write `GET /api/inventory` endpoint — cache check → DB fallback → set cache → return
-- ⬜ **7.3** Write `InventoryItemResponse` record in `Contracts/Responses/`
-- ⬜ **7.4** `[TEST]` Write `ResetInventoryTests`:
+- ✅ **7.2** Write `GET /api/inventory` endpoint — cache check → DB fallback → set cache → return
+- ✅ **7.3** Write `InventoryItemResponse` record in `Contracts/Responses/`
+- ✅ **7.4** `[TEST]` Write `ResetInventoryTests`:
   - Deletes all holds
   - Restores `availableQty = totalQty` for all inventory items
   - Calls `IInventoryCache.FlushAllAsync`
-- ⬜ **7.5** Write `POST /api/inventory/reset` endpoint
+- ✅ **7.5** Write `POST /api/inventory/reset` endpoint
 - ⬜ **7.6** Verify: POST hold → check inventory → reset → inventory back to seed quantities
 
 ---

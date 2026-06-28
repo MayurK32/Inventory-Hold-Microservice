@@ -56,6 +56,7 @@ builder.Services.AddHostedService<HoldExpiryWorker>();
 // Phase 4: exception handler + hold service
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
 builder.Services.AddScoped<HoldService>();
+builder.Services.AddScoped<InventoryService>();
 
 builder.Services.AddProblemDetails();
 
@@ -75,6 +76,7 @@ app.MapScalarApiReference();
 
 // Phase 4: endpoints
 app.MapHoldEndpoints();
+app.MapInventoryEndpoints();
 
 // Temp health stub — replaced with real checks in Phase 10
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }))

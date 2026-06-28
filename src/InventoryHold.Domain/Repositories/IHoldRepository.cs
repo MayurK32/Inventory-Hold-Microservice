@@ -10,4 +10,5 @@ public interface IHoldRepository
     Task<Hold> InsertAsync(Hold hold, IMongoTransaction? transaction = null, CancellationToken ct = default);
     Task<Hold?> AtomicTransitionAsync(string holdId, HoldStatus expectedStatus, HoldStatus newStatus, DateTime transitionTime, CancellationToken ct = default);
     Task<IReadOnlyList<Hold>> GetExpiredActiveAsync(DateTime asOf, CancellationToken ct = default);
+    Task DeleteAllAsync(CancellationToken ct = default);
 }

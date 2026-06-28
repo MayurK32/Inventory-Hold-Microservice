@@ -254,6 +254,23 @@ Domain entities have `private set` and no BsonAttributes. Options: (a) add BsonA
 
 ---
 
+## Phase 7 — GET /api/inventory + POST /api/inventory/reset (TDD)
+
+**Files created:** `Contracts/Responses/InventoryItemResponse.cs`, `UnitTests/Application/GetInventoryServiceTests.cs`, `UnitTests/Application/ResetInventoryServiceTests.cs`, `WebApi/Services/InventoryService.cs`, `WebApi/Endpoints/InventoryEndpoints.cs`
+**Files modified:** `Domain/Repositories/IHoldRepository.cs`, `Infrastructure/Persistence/MongoHoldRepository.cs`, `WebApi/Program.cs`
+
+**Key design decisions:**
+- New `InventoryService` instead of adding to `HoldService` — inventory and hold operations are separate resources; keeps each service focused and independently testable
+- `IHoldRepository.DeleteAllAsync` added — not present in original interface, needed for reset to wipe all holds before restoring inventory quantities
+- `ResetInventoryAsync` reads from DB (not cache) after flush — `FlushAllAsync` invalidates the cache, so we call `GetAllAsync` directly to return the freshly-reset state. Third test (`DoesNotReadCacheAfterFlush`) enforces this.
+- `HeldQuantity` is a computed domain property (`TotalQuantity - AvailableQuantity`) on `InventoryItem` — endpoint maps it directly, no service-layer computation needed
+
+**Verification:** `dotnet test` → **Passed: 60, Failed: 0** (54 Phase 2–6 + 6 Phase 7)
+
+**Pending:** 7.6 — manual verify: create hold → GET /api/inventory (heldQty > 0) → POST /api/inventory/reset → GET /api/holds (empty)
+
+---
+
 ## Human Audit
 *(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
 
