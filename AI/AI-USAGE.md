@@ -68,6 +68,39 @@ Full HLD covering system architecture, component diagram, all API endpoints, and
 
 ---
 
+## Phase 1 — .NET Solution Scaffold
+
+**Goal:** Create an empty-but-buildable .NET 10 solution with the 5-project DDD structure, all NuGet packages, config records, and a minimal Program.cs skeleton. No infrastructure connectivity yet.
+
+**Planning approach:**
+- Used Claude Code plan mode; AI read `docs/hld.md §3`, `docs/progress.md`, and the assignment PDF via Explore agent to derive the exact project structure and package list
+- AI corrected NuGet placement from original progress.md: drivers (MongoDB.Driver, StackExchange.Redis, RabbitMQ.Client) live in **Infrastructure only**, not in WebApi — WebApi gets them transitively
+- AI chose `Scalar.AspNetCore` over `Swashbuckle` (Swashbuckle is unmaintained for .NET 9+)
+- AI flagged Redis connection string format gotcha: StackExchange.Redis uses `host:port`, NOT `redis://host:port` — documented in RedisSettings.cs
+
+**Files created:**
+- `InventoryHold.sln` + `src/` with 5 projects wired per DDD dependency direction
+- `src/InventoryHold.Contracts/Settings/` — 4 config records: `MongoDbSettings`, `RedisSettings`, `RabbitMqSettings`, `HoldSettings`
+- `src/InventoryHold.WebApi/appsettings.json` (Docker service names) + `appsettings.Development.json` (localhost overrides)
+- `src/InventoryHold.WebApi/Program.cs` — config binding, OpenAPI/Scalar, ProblemDetails, middleware pipeline, TODO stubs per phase
+
+**Actual NuGet versions installed:**
+| Package | Version |
+|---------|---------|
+| MongoDB.Driver | 3.9.0 |
+| StackExchange.Redis | 3.0.7 |
+| RabbitMQ.Client | 7.2.1 |
+| Microsoft.AspNetCore.OpenApi | 10.0.9 |
+| Scalar.AspNetCore | 2.16.6 |
+| AspNetCore.HealthChecks.MongoDb | 9.0.0 |
+| AspNetCore.HealthChecks.Redis | 9.0.0 |
+| Moq | 4.20.72 |
+| FluentAssertions | 8.10.0 |
+
+**Verification:** `dotnet build` → 0 errors · `dotnet test` → Passed: 1, Failed: 0 · `/health` → 200 · `/scalar/v1` → UI loads
+
+---
+
 ## Human Audit
 *(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
 

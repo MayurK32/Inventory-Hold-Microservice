@@ -99,4 +99,37 @@ This file tracks all significant prompts, their purpose, and outcomes.
 
 ---
 
+## Session 3 — 2026-06-28: Phase 1 .NET Solution Scaffold
+
+### PROMPT-007
+**Phase:** Implementation — Phase 1 Planning
+**Tool:** Claude Code plan mode (EnterPlanMode → ExitPlanMode)
+**Purpose:** Plan the .NET 10 solution structure before scaffolding. Read hld.md, progress.md, and assignment PDF (via Explore agent) to derive exact project structure, dependency direction, NuGet packages, and config records.
+**Prompt Summary:**
+> "Plan phase 1 properly by checking hld.md and progress.md also base requirement dont hallucinate"
+**Outcome:** Plan documented correcting 2 issues from original progress.md:
+1. MongoDB.Driver/Redis/RabbitMQ.Client belong in Infrastructure only, not WebApi (transitive via project reference)
+2. Swashbuckle deprecated for .NET 9+ — use `Scalar.AspNetCore` instead
+Redis connection string format gotcha documented: StackExchange.Redis requires `host:port`, not `redis://host:port`.
+
+---
+
+### PROMPT-008
+**Phase:** Implementation — Phase 1 Execution
+**Tool:** Claude Code (Bash + Write)
+**Purpose:** Execute the approved Phase 1 plan — create solution, 5 projects, wire references, install NuGet packages, create config records, write appsettings and Program.cs, clean boilerplate.
+**Prompt Summary:**
+> *(Plan approved — implementation proceeded automatically)*
+**Outcome:**
+- `dotnet new sln` + 5 projects created under `src/`
+- All project references wired per DDD dependency direction
+- 9 NuGet packages installed across Infrastructure, WebApi, UnitTests
+- 4 config records created in `Contracts/Settings/`
+- `appsettings.json` (Docker) and `appsettings.Development.json` (localhost) written
+- `Program.cs` skeleton written with TODO stubs per phase
+- Template boilerplate removed; `PlaceholderTest.cs` added
+- `dotnet build` → 0 errors · `dotnet test` → Passed: 1
+
+---
+
 *(Additional prompts will be logged here as the session progresses)*
