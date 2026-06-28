@@ -4,6 +4,44 @@ A production-quality inventory reservation service built with .NET 10, MongoDB, 
 
 ---
 
+## Architecture Diagram
+
+```mermaid
+flowchart TD
+    U["User / Browser"]
+
+    subgraph Docker["Docker Compose"]
+        N["nginx :3000\nstatic SPA + reverse proxy"]
+
+        subgraph API["ASP.NET Core API :8080"]
+            EP["Minimal API Endpoints\nPOST · GET · DELETE /api/holds\nGET /api/inventory · POST /api/inventory/reset"]
+            SVC["Application Services\nHoldService · InventoryService"]
+            DOM["Domain Layer\nHold aggregate · InventoryItem\nTyped exceptions · Repository interfaces"]
+            INFRA["Infrastructure\nMongoHoldRepository · MongoInventoryRepository\nRedisCacheService · RabbitMqHoldEventPublisher"]
+            WRK["HoldExpiryWorker\nBackgroundService — polls every 30s\nAtomicTransition Active → Expired"]
+        end
+
+        MDB[("MongoDB\nReplica Set\nholds · inventory · settings")]
+        RDS[("Redis\ninventory:all · hold:{id}\nsettings:expiration-minutes")]
+        RMQ["RabbitMQ\ninventory.hold.events\ncreated · released · expired"]
+    end
+
+    U -->|"HTTP :3000"| N
+    N -->|"React SPA"| U
+    N -->|"/api/*"| EP
+    EP --> SVC
+    SVC --> DOM
+    SVC --> INFRA
+    INFRA -->|"reads / writes\n(transactions for create/release)"| MDB
+    INFRA -->|"cache get / set / invalidate"| RDS
+    INFRA -->|"publish domain events"| RMQ
+    WRK -->|"poll + FindOneAndUpdate"| MDB
+    WRK -->|"invalidate on expiry"| RDS
+    WRK -->|"publish hold.expired"| RMQ
+```
+
+---
+
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (v4.x+)
@@ -39,7 +77,7 @@ All 5 services start in dependency order. First run pulls images and compiles th
 dotnet test src/InventoryHold.UnitTests/InventoryHold.UnitTests.csproj
 ```
 
-82 tests, all passing. Zero tests require running infrastructure — all dependencies mocked via Moq.
+88 tests, all passing. Zero tests require running infrastructure — all dependencies mocked via Moq.
 
 ---
 
