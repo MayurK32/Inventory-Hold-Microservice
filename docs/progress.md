@@ -32,27 +32,14 @@
 >
 > **Skills:** `dotnet-architect` · `dotnet-backend` · `csharp-pro` · `ddd-strategic-design`
 
-- ⬜ **1.1** Create solution: `dotnet new sln -n InventoryHold`
-- ⬜ **1.2** Create 5 projects:
-  - `dotnet new classlib -n InventoryHold.Contracts`
-  - `dotnet new classlib -n InventoryHold.Domain`
-  - `dotnet new classlib -n InventoryHold.Infrastructure`
-  - `dotnet new webapi -n InventoryHold.WebApi --no-openapi` (add manually)
-  - `dotnet new xunit -n InventoryHold.UnitTests`
-- ⬜ **1.3** Add all projects to solution and set project references:
-  - `Contracts` → (no refs)
-  - `Domain` → `Contracts`
-  - `Infrastructure` → `Domain`
-  - `WebApi` → `Infrastructure`, `Contracts`
-  - `UnitTests` → `Domain`, `Infrastructure`, `WebApi`
-- ⬜ **1.4** Install NuGet packages:
-  - `WebApi`: `MongoDB.Driver`, `StackExchange.Redis`, `RabbitMQ.Client`, `Microsoft.AspNetCore.OpenApi`, `AspNetCore.HealthChecks.MongoDb`, `AspNetCore.HealthChecks.Redis`
-  - `Infrastructure`: `MongoDB.Driver`, `StackExchange.Redis`, `RabbitMQ.Client`
-  - `UnitTests`: `Moq`, `FluentAssertions`, `Microsoft.NET.Test.Sdk`
-- ⬜ **1.5** Configure `appsettings.json` and `appsettings.Development.json` in `WebApi` with all connection string placeholders
-- ⬜ **1.6** Add `HoldSettings` and `MongoDbSettings` and `RabbitMqSettings` config records in `Contracts`
-- ⬜ **1.7** Set up `Program.cs` skeleton: DI registration stubs, middleware pipeline order (exception handler → routing → endpoints)
-- ⬜ **1.8** Verify: `dotnet build` passes with 0 errors
+- ✅ **1.1** Solution `InventoryHold.sln` created; `src/` directory created
+- ✅ **1.2** 5 projects created under `src/` (Contracts, Domain, Infrastructure, WebApi --no-openapi, UnitTests)
+- ✅ **1.3** All project references wired per DDD dependency direction
+- ✅ **1.4** NuGet packages installed: Infrastructure (MongoDB.Driver 3.9, StackExchange.Redis 3.0.7, RabbitMQ.Client 7.2.1); WebApi (Microsoft.AspNetCore.OpenApi 10.0.9, Scalar.AspNetCore 2.16.6, HealthChecks.MongoDb 9.0, HealthChecks.Redis 9.0); UnitTests (Moq 4.20, FluentAssertions 8.10)
+- ✅ **1.5** `appsettings.json` (Docker service names) and `appsettings.Development.json` (localhost overrides) written
+- ✅ **1.6** 4 config records in `Contracts/Settings/`: `MongoDbSettings`, `RedisSettings`, `RabbitMqSettings`, `HoldSettings`
+- ✅ **1.7** `Program.cs` skeleton: config binding, OpenAPI + Scalar, ProblemDetails, middleware pipeline, TODO stubs per phase, temp `/health` stub
+- ✅ **1.8** `dotnet build` → 0 errors · `dotnet test` → Passed: 1, Failed: 0
 
 ---
 
