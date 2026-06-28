@@ -22,7 +22,7 @@
 - ✅ **0.3** `api` depends_on stub added as comment — wired in Phase 1 with `condition: service_healthy`
 - ✅ **0.4** Named volume `mongo_data` declared
 - ✅ **0.5** `.env` created (all connection defaults); `.gitignore` created
-- ⬜ **0.6** Verify: `docker-compose up -d` → all 3 show `healthy`; Compass connects; Redis pings; RabbitMQ UI at :15672
+- ✅ **0.6** Verify: `docker-compose up -d` → all 3 show `healthy`; Compass connects; Redis pings; RabbitMQ UI at :15672
 
 ---
 
@@ -78,7 +78,7 @@
   ```
 - ✅ **2.4.2** Write `IInventoryRepository` in `Domain/Repositories/`:
   ```
-  GetAllAsync, GetByProductIdAsync,
+  GetAllAsync, GetByProductIdAsync, GetByProductIdsAsync ($in batch — B3),
   DecrementBatchAsync (within transaction),
   IncrementAsync, ResetAllAsync
   ```
@@ -135,7 +135,7 @@
 
 ### 3.5 — MongoSettingsRepository
 - ✅ **3.5.1** Write `MongoSettingsRepository.GetExpirationMinutesAsync` — reads `HoldExpirationMinutes` from settings collection; falls back to appsettings default
-- ⬜ **3.5.2** Verify with MongoDB Compass: indexes created, 5 seed products visible
+- ✅ **3.5.2** Verify with MongoDB Compass: indexes created, 5 seed products visible
 
 ---
 
@@ -243,7 +243,8 @@
   - `422` when `pageSize < 1`
 - ✅ **6.3.2** Write `GET /api/holds` endpoint with query params `status`, `page`, `pageSize`
 - ✅ **6.3.3** Write `PagedResponse<T>` in `Contracts/Responses/`
-- ⬜ **6.3.4** Verify all 3 endpoints manually with Scalar UI
+- ✅ **6.3.4** Verify all 3 endpoints manually with Scalar UI
+- ✅ **6.3.5** `GET /api/holds/cursor` — keyset pagination endpoint (B5): `CursorPagedResponse<T>`, cursor=`"{createdAt:O}|{id}"`, O(log n)
 
 ---
 
@@ -325,7 +326,7 @@
   - `POST /api/inventory/reset` → flush all
 - ✅ **9.7** Wire settings cache into `CreateHoldAsync`:
   - Try Redis → miss → hit MongoDB → set Redis → return
-- ⬜ **9.8** Verify: `GET /api/inventory` twice → check Redis CLI `GET inventory:all` is populated after first call
+- ✅ **9.8** Verify: `GET /api/inventory` twice → check Redis CLI `GET inventory:all` is populated after first call
 
 ---
 
@@ -343,7 +344,7 @@
 - ✅ **10.4** `[TEST]` Write `RabbitMqHealthCheckTests` (3 tests): IsOpen→Healthy, IsClosed→Unhealthy, Exception→Unhealthy
 - ✅ **10.5** `.NET 10 native OpenAPI` + Scalar already wired from Phase 1 (`/scalar/v1` works)
 - ✅ **10.6** All endpoints annotated with `WithName`, `WithSummary`, `Produces<T>`, `ProducesProblem`
-- ⬜ **10.7** Verify: `docker-compose up` → `GET /health` → `{"status":"Healthy"}`, `/scalar/v1` → UI loads
+- ✅ **10.7** Verify: `docker-compose up` → `GET /health` → `{"status":"Healthy"}`, `/scalar/v1` → UI loads
 
 ---
 
@@ -353,7 +354,7 @@
 >
 > **Skills:** `csharp-pro` · `clean-code` · `dotnet-backend-patterns`
 
-- ✅ **11.1** `dotnet test` → **Passed: 82, Failed: 0** (all phases 2–10)
+- ✅ **11.1** `dotnet test` → **Passed: 88, Failed: 0** (all phases 2–10 + B1–B12 perf fixes)
 - ✅ **11.2** Mandatory 5 scenarios covered by named tests:
   - ✓ `CreateHoldAsync_EmptyItems_ThrowsDomainException` → validation 422
   - ✓ `CreateHoldAsync_AllInStock_ReturnsHoldWithDenormalizedProductName` → happy path 201
@@ -362,6 +363,25 @@
   - ✓ `ProcessExpiredHoldsAsync_RaceCondition_...` → AtomicTransition null → skip restore
 - ✅ **11.3** 0 tests require Docker — all dependencies mocked via Moq
 - ⬜ **11.4** Optional: coverage report
+
+---
+
+## Phase 15 — Performance Bottleneck Fixes (B1–B12)
+
+> Goal: Address all 12 bottlenecks from the senior architect review. No regressions — 88/88 tests pass.
+
+- ✅ **B1** RabbitMQ channel reuse — `SemaphoreSlim(1,1)` guard + `IAsyncDisposable`; creates channel once, reuses until closed
+- ✅ **B2** `BulkWriteAsync` (`IsOrdered=false`) for `DecrementBatchAsync` and `IncrementAsync` — N `UpdateOneAsync` → 1 batch write
+- ✅ **B3** `GetByProductIdsAsync` with `Filter.In` — N sequential `GetByProductIdAsync` calls → 1 `$in` query in `CreateHoldAsync`
+- ✅ **B4** Cache stampede guard in `InventoryService` — `static SemaphoreSlim _fetchLock` + double-check post-lock re-read
+- ✅ **B5** `GET /api/holds/cursor` — keyset pagination; cursor=`"{createdAt:O}|{id}"`; `Limit=pageSize+1` trick; O(log n) vs O(n) skip
+- ✅ **B6** `EstimatedDocumentCountAsync` for total count when no filter — O(1) metadata read vs O(n) full scan
+- ✅ **B7** `HoldExpiryWorker` safety — `_tickLock.WaitAsync(0)` overlap guard; `Parallel.ForEachAsync(DOP=8)`; `Interlocked.Increment` counter; `Limit=500` on `GetExpiredActiveAsync`
+- ✅ **B8** Fixed-window rate limiter on `POST /api/holds` — 100 req/min via `AddRateLimiter` + `RequireRateLimiting("holds-create")`
+- ✅ **B9** Max 50 items guard in `CreateHoldAsync` — `422` if `request.Items.Count > 50`
+- ✅ **B10** `BulkWriteAsync` for `ResetAllAsync` — 1 `GetAllAsync` + 1 `BulkWrite` instead of N `UpdateOneAsync`
+- ✅ **B11** Batch `KeyDeleteAsync(RedisKey[])` in `FlushAllAsync` — 2 sequential DELs → 1 batch DEL
+- ✅ **B12** `Task.Run()` wrap on RabbitMQ `CreateAsync` in DI factory — strips sync context, avoids threadpool deadlock risk at startup
 
 ---
 
@@ -509,18 +529,19 @@
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 0 | Infrastructure skeleton | ⬜ |
-| 1 | .NET solution scaffold | ⬜ |
-| 2 | Domain layer (TDD) | ⬜ |
-| 3 | MongoDB infrastructure (TDD) | ⬜ |
-| 4 | POST /api/holds (TDD) | ⬜ |
-| 5 | Background worker (TDD) | ⬜ |
-| 6 | GET + DELETE endpoints (TDD) | ⬜ |
-| 7 | Inventory + Reset (TDD) | ⬜ |
+| 0 | Infrastructure skeleton | ✅ |
+| 1 | .NET solution scaffold | ✅ |
+| 2 | Domain layer (TDD) | ✅ |
+| 3 | MongoDB infrastructure (TDD) | ✅ |
+| 4 | POST /api/holds (TDD) | ✅ |
+| 5 | Background worker (TDD) | ✅ |
+| 6 | GET + DELETE endpoints (TDD) | ✅ |
+| 7 | Inventory + Reset (TDD) | ✅ |
 | 8 | RabbitMQ publisher (TDD) | ✅ |
 | 9 | Redis caching (TDD) | ✅ |
 | 10 | Health checks + Swagger | ✅ |
-| 11 | Unit test suite complete | ✅ |
+| 11 | Unit test suite (88 tests) | ✅ |
 | 12 | Frontend React | ✅ |
 | 13 | Nginx + full Docker | ✅ |
 | 14 | Final QA + README | ⬜ |
+| 15 | Performance fixes (B1–B12) | ✅ |
