@@ -234,6 +234,26 @@ Domain entities have `private set` and no BsonAttributes. Options: (a) add BsonA
 
 ---
 
+## Phase 6 — GET & DELETE Endpoints (TDD)
+
+**Files created:** `Contracts/Responses/PagedResponse.cs`, `UnitTests/Application/GetHoldServiceTests.cs`, `UnitTests/Application/ReleaseHoldServiceTests.cs`, `UnitTests/Application/ListHoldsServiceTests.cs`
+**Files modified:** `WebApi/Services/HoldService.cs`, `WebApi/Endpoints/HoldEndpoints.cs`, `UnitTests/Application/CreateHoldServiceTests.cs`
+
+**Key design decisions:**
+- `IInventoryCache` added as last constructor param to `HoldService` — already registered as `NullInventoryCache` in Phase 5, so no Program.cs changes needed
+- `ReleaseHoldAsync` reuses `Hold.MarkReleased()` for the 404/410 distinction — when `AtomicTransitionAsync` returns null, we fetch the hold and call `MarkReleased()` on it. If already Released/Expired, the domain method throws `HoldTerminatedException` with the correct `At` timestamp. If not found, we throw `HoldNotFoundException`. No duplication of status-check logic in the service.
+- `ToResponse(Hold)` private static helper extracted in `HoldEndpoints` — avoids repeating the 8-field mapping across all 4 endpoints
+- List endpoint: `status ?? "active"` default applied at endpoint level (not service) — keeps `ListHoldsAsync` signature clean and testable with explicit status strings
+- `pageSize` validation in service (not endpoint) — tested without HTTP infrastructure
+
+**Compile fix logged:** `MapGet` lambda with `int page = 1, int pageSize = 20` before `HoldService service` triggered CS1737. C# requires optional parameters after all required ones — reordered to DI params first, then defaulted query params.
+
+**Verification:** `dotnet test` → **Passed: 54, Failed: 0** (43 Phase 2–5 + 11 Phase 6)
+
+**Pending:** 6.3.4 — manual verify all 3 endpoints via Scalar UI
+
+---
+
 ## Human Audit
 *(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
 

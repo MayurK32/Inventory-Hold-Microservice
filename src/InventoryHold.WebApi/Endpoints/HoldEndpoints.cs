@@ -1,5 +1,6 @@
 using InventoryHold.Contracts.Requests;
 using InventoryHold.Contracts.Responses;
+using InventoryHold.Domain.Entities;
 using InventoryHold.WebApi.Services;
 
 namespace InventoryHold.WebApi.Endpoints;
@@ -16,18 +17,43 @@ public static class HoldEndpoints
             CancellationToken ct) =>
         {
             var hold = await service.CreateHoldAsync(request, ct);
-            var response = new HoldResponse(
-                hold.Id, hold.CustomerName, hold.Status.ToString(),
-                hold.Items
-                    .Select(i => new HoldItemResponse(i.ProductId, i.ProductName, i.Quantity))
-                    .ToList(),
-                hold.CreatedAt, hold.ExpiresAt, hold.ReleasedAt, hold.ExpiredAt);
-            return Results.Created($"/api/holds/{hold.Id}", response);
+            return Results.Created($"/api/holds/{hold.Id}", ToResponse(hold));
         })
         .WithName("CreateHold")
         .Produces<HoldResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+
+        group.MapGet("/{holdId}", async (string holdId, HoldService service, CancellationToken ct) =>
+            Results.Ok(ToResponse(await service.GetHoldAsync(holdId, ct))))
+        .WithName("GetHold")
+        .Produces<HoldResponse>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapDelete("/{holdId}", async (string holdId, HoldService service, CancellationToken ct) =>
+            Results.Ok(ToResponse(await service.ReleaseHoldAsync(holdId, ct))))
+        .WithName("ReleaseHold")
+        .Produces<HoldResponse>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status410Gone);
+
+        group.MapGet("/", async (
+            HoldService service, CancellationToken ct,
+            string? status, int page = 1, int pageSize = 20) =>
+        {
+            var (items, total) = await service.ListHoldsAsync(status ?? "active", page, pageSize, ct);
+            var totalPages = (int)Math.Ceiling((double)total / pageSize);
+            return Results.Ok(new PagedResponse<HoldResponse>(
+                items.Select(ToResponse).ToList(), total, page, pageSize, totalPages));
+        })
+        .WithName("ListHolds")
+        .Produces<PagedResponse<HoldResponse>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
     }
+
+    private static HoldResponse ToResponse(Hold hold) => new(
+        hold.Id, hold.CustomerName, hold.Status.ToString(),
+        hold.Items.Select(i => new HoldItemResponse(i.ProductId, i.ProductName, i.Quantity)).ToList(),
+        hold.CreatedAt, hold.ExpiresAt, hold.ReleasedAt, hold.ExpiredAt);
 }

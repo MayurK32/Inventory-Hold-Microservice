@@ -215,14 +215,14 @@
 > **Skills:** `api-endpoint-builder` · `mongodb-inventory-hold` · `dotnet-backend`
 
 ### 6.1 — GET /api/holds/{holdId}
-- ⬜ **6.1.1** `[TEST]` Write `GetHoldTests`:
+- ✅ **6.1.1** `[TEST]` Write `GetHoldTests`:
   - Returns `200 OK` with hold when found (Active, Released, or Expired)
   - Returns `404` when holdId never existed
   - Cache: returns from cache on second call (verify `IInventoryCache.GetHoldAsync` called first)
-- ⬜ **6.1.2** Write `GET /api/holds/{holdId}` endpoint — cache check → MongoDB fallback → set cache
+- ✅ **6.1.2** Write `GET /api/holds/{holdId}` endpoint — cache check → MongoDB fallback → set cache
 
 ### 6.2 — DELETE /api/holds/{holdId}
-- ⬜ **6.2.1** `[TEST]` Write `ReleaseHoldTests`:
+- ✅ **6.2.1** `[TEST]` Write `ReleaseHoldTests`:
   - `200 OK` with released hold (including `releasedAt`) on Active hold
   - `404` when holdId does not exist at all
   - `410 Gone` when hold exists with status `Released` — detail includes `releasedAt`
@@ -230,20 +230,20 @@
   - On success: `IInventoryRepository.IncrementAsync` called for each item
   - On success: `IInventoryCache.InvalidateInventoryAsync` called
   - On success: `IInventoryCache.InvalidateHoldAsync` called
-- ⬜ **6.2.2** Write `HoldService.ReleaseHoldAsync` — make tests pass
+- ✅ **6.2.2** Write `HoldService.ReleaseHoldAsync` — make tests pass
   - `AtomicTransitionAsync` → if null: fetch hold for 404 vs 410 distinction
-- ⬜ **6.2.3** Write `DELETE /api/holds/{holdId}` endpoint
+- ✅ **6.2.3** Write `DELETE /api/holds/{holdId}` endpoint
 
 ### 6.3 — GET /api/holds (List)
-- ⬜ **6.3.1** `[TEST]` Write `ListHoldsTests`:
+- ✅ **6.3.1** `[TEST]` Write `ListHoldsTests`:
   - Default: returns page 1, size 20, status Active
   - `?status=expired` filters correctly
   - Pagination: correct `total`, `totalPages`, `page`, `pageSize` in response
   - `422` when `pageSize > 100`
   - `422` when `pageSize < 1`
-- ⬜ **6.3.2** Write `GET /api/holds` endpoint with query params `status`, `page`, `pageSize`
-- ⬜ **6.3.3** Write `PagedResponse<T>` in `Contracts/Responses/`
-- ⬜ **6.3.4** Verify all 3 endpoints manually with Swagger UI at `/swagger`
+- ✅ **6.3.2** Write `GET /api/holds` endpoint with query params `status`, `page`, `pageSize`
+- ✅ **6.3.3** Write `PagedResponse<T>` in `Contracts/Responses/`
+- ⬜ **6.3.4** Verify all 3 endpoints manually with Scalar UI
 
 ---
 

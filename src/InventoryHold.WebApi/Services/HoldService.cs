@@ -1,5 +1,6 @@
 using InventoryHold.Contracts.Requests;
 using InventoryHold.Contracts.Settings;
+using InventoryHold.Domain.Cache;
 using InventoryHold.Domain.Entities;
 using InventoryHold.Domain.Exceptions;
 using InventoryHold.Domain.Repositories;
@@ -14,7 +15,8 @@ public sealed class HoldService(
     IInventoryRepository inventoryRepository,
     ISettingsRepository settingsRepository,
     ITransactionFactory transactionFactory,
-    IOptions<HoldSettings> holdSettings)
+    IOptions<HoldSettings> holdSettings,
+    IInventoryCache cache)
 {
     public async Task<Hold> CreateHoldAsync(CreateHoldRequest request, CancellationToken ct = default)
     {
@@ -42,6 +44,45 @@ public sealed class HoldService(
         }
 
         throw new StockUnavailableException();
+    }
+
+    public async Task<Hold> GetHoldAsync(string holdId, CancellationToken ct = default)
+    {
+        var cached = await cache.GetHoldAsync(holdId, ct);
+        if (cached is not null) return cached;
+
+        var hold = await holdRepository.GetByIdAsync(holdId, ct)
+            ?? throw new HoldNotFoundException(holdId);
+
+        await cache.SetHoldAsync(hold, ct);
+        return hold;
+    }
+
+    public async Task<Hold> ReleaseHoldAsync(string holdId, CancellationToken ct = default)
+    {
+        var result = await holdRepository.AtomicTransitionAsync(
+            holdId, HoldStatus.Active, HoldStatus.Released, DateTime.UtcNow, ct);
+
+        if (result is null)
+        {
+            var hold = await holdRepository.GetByIdAsync(holdId, ct)
+                ?? throw new HoldNotFoundException(holdId);
+            hold.MarkReleased(); // throws HoldTerminatedException with correct At timestamp
+            throw new InvalidOperationException("unreachable");
+        }
+
+        await inventoryRepository.IncrementAsync(result.Items, ct);
+        await cache.InvalidateInventoryAsync(ct);
+        await cache.InvalidateHoldAsync(holdId, ct);
+        return result;
+    }
+
+    public async Task<(IReadOnlyList<Hold> Items, long Total)> ListHoldsAsync(
+        string? status, int page, int pageSize, CancellationToken ct = default)
+    {
+        if (pageSize > 100) throw new DomainException("pageSize cannot exceed 100.");
+        if (pageSize < 1)   throw new DomainException("pageSize must be at least 1.");
+        return await holdRepository.GetPagedAsync(status, page, pageSize, ct);
     }
 
     // Message check first: if e.Code throws internally, the filter would silently evaluate to false.

@@ -254,4 +254,40 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
 - `Program.cs` wired: stub singletons + `AddHostedService<HoldExpiryWorker>()`
 - `dotnet test` → **Passed: 43, Failed: 0** (39 Phase 2+3+4 + 4 Phase 5)
 
+---
+
+## Session 6 — 2026-06-28: Phase 6 GET & DELETE Endpoints
+
+### PROMPT-017
+**Phase:** Implementation — Phase 6 Planning
+**Tool:** Claude Code plan mode (EnterPlanMode → ExitPlanMode)
+**Purpose:** Plan GET /api/holds/{holdId}, DELETE /api/holds/{holdId}, and GET /api/holds (paginated list). Read progress.md Phase 6 tasks, HoldService, HoldEndpoints, domain interfaces, and HLD API contracts.
+**Prompt Summary:**
+> "Plan phase 6 properly"
+**Outcome:** Plan written covering:
+- `PagedResponse<T>` contract in Contracts/Responses/
+- `IInventoryCache` added to `HoldService` constructor (breaking change → `CreateHoldServiceTests` fix)
+- `GetHoldAsync`: cache-first → DB fallback → set cache
+- `ReleaseHoldAsync`: `AtomicTransitionAsync` → null → `GetByIdAsync` → `hold.MarkReleased()` to reuse domain logic for 404/410 distinction
+- `ListHoldsAsync`: validate pageSize 1–100, delegate to `GetPagedAsync`
+- 11 new TDD tests (3 Get + 4 Release + 4 List) → 54 total
+- Private `ToResponse(Hold)` helper extracted to avoid mapping duplication across 4 endpoints
+
+---
+
+### PROMPT-018
+**Phase:** Implementation — Phase 6 Execution
+**Tool:** Claude Code (Write + Edit + Bash)
+**Purpose:** Execute the approved Phase 6 plan.
+**Prompt Summary:**
+> *(Plan approved — implementation proceeded automatically)*
+**Outcome:**
+- `PagedResponse<T>` created in `Contracts/Responses/`
+- `GetHoldServiceTests` (3), `ReleaseHoldServiceTests` (4), `ListHoldsServiceTests` (4) written first (RED)
+- `CreateHoldServiceTests` updated: added `Mock<IInventoryCache>` field + updated constructor call
+- `HoldService` updated: `IInventoryCache cache` added to constructor; `GetHoldAsync`, `ReleaseHoldAsync`, `ListHoldsAsync` implemented
+- `HoldEndpoints` refactored: extracted `ToResponse()` helper; added GET /{holdId}, DELETE /{holdId}, GET / endpoints
+- **Compile fix:** C# requires optional parameters after required ones — reordered `MapGet("/")` lambda to put `HoldService service, CancellationToken ct` before `int page = 1, int pageSize = 20`
+- `dotnet test` → **Passed: 54, Failed: 0** (43 Phase 2–5 + 11 Phase 6)
+
 *(Additional prompts will be logged here as the session progresses)*

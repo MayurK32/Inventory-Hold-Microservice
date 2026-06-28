@@ -2,6 +2,7 @@ using System.Net;
 using FluentAssertions;
 using InventoryHold.Contracts.Requests;
 using InventoryHold.Contracts.Settings;
+using InventoryHold.Domain.Cache;
 using InventoryHold.Domain.Entities;
 using InventoryHold.Domain.Exceptions;
 using InventoryHold.Domain.Repositories;
@@ -24,6 +25,7 @@ public class CreateHoldServiceTests
     private readonly Mock<ISettingsRepository>  _settings  = new();
     private readonly Mock<ITransactionFactory>  _txFactory = new();
     private readonly Mock<IMongoTransaction>    _tx        = new();
+    private readonly Mock<IInventoryCache>      _cache     = new();
     private readonly HoldService _service;
 
     private static readonly InventoryItem WidgetA = new()
@@ -40,7 +42,7 @@ public class CreateHoldServiceTests
 
         _service = new HoldService(
             _holds.Object, _inventory.Object, _settings.Object, _txFactory.Object,
-            Options.Create(new HoldSettings { ExpirationMinutes = 15 }));
+            Options.Create(new HoldSettings { ExpirationMinutes = 15 }), _cache.Object);
     }
 
     // Happy path
