@@ -6,8 +6,8 @@ RUN dotnet publish src/InventoryHold.WebApi/InventoryHold.WebApi.csproj \
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
-RUN addgroup --gid 1001 appgroup && \
-    adduser --uid 1001 --gid 1001 --disabled-password --gecos "" appuser
+RUN groupadd --gid 1001 appgroup && \
+    useradd --uid 1001 --gid appgroup --no-create-home appuser
 COPY --from=build /app/publish .
 USER appuser
 EXPOSE 8080
