@@ -60,6 +60,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    volumes:
+      - api_logs:/app/logs
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 10s
@@ -81,3 +83,4 @@ services:
 
 volumes:
   mongo_data:
+  api_logs:

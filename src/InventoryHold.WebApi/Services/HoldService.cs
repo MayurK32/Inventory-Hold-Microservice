@@ -30,6 +30,9 @@ public sealed class HoldService(
             if (item.Quantity <= 0)
                 throw new DomainException($"Quantity for '{item.ProductId}' must be at least 1.");
 
+        logger.LogInformation("Creating hold for {CustomerName} with {ItemCount} items",
+            request.CustomerName, request.Items.Count);
+
         var cachedExpiry = await cache.GetExpirationMinutesAsync(ct);
         int expirationMinutes;
         if (cachedExpiry.HasValue)
@@ -48,6 +51,8 @@ public sealed class HoldService(
             try
             {
                 var created = await AttemptCreateAsync(request, expirationMinutes, ct);
+                logger.LogInformation("Hold {HoldId} created, expires {ExpiresAt} (attempt {Attempt})",
+                    created.Id, created.ExpiresAt, attempt + 1);
                 await cache.InvalidateInventoryAsync(ct);
                 try { await eventPublisher.PublishHoldCreatedAsync(created, ct); }
                 catch (Exception ex) { logger.LogError(ex, "Failed to publish HoldCreated for {HoldId}", created.Id); }
@@ -56,6 +61,7 @@ public sealed class HoldService(
             catch (MongoCommandException e) when (IsWriteConflict(e))
             {
                 if (attempt == 2) throw new StockUnavailableException();
+                logger.LogWarning("Write conflict on hold create, retrying (attempt {Attempt})", attempt + 1);
                 await Task.Delay(50, ct);
             }
         }
@@ -66,8 +72,13 @@ public sealed class HoldService(
     public async Task<Hold> GetHoldAsync(string holdId, CancellationToken ct = default)
     {
         var cached = await cache.GetHoldAsync(holdId, ct);
-        if (cached is not null) return cached;
+        if (cached is not null)
+        {
+            logger.LogDebug("Hold {HoldId} cache hit", holdId);
+            return cached;
+        }
 
+        logger.LogDebug("Hold {HoldId} cache miss, fetching from DB", holdId);
         var hold = await holdRepository.GetByIdAsync(holdId, ct)
             ?? throw new HoldNotFoundException(holdId);
 
@@ -77,6 +88,8 @@ public sealed class HoldService(
 
     public async Task<Hold> ReleaseHoldAsync(string holdId, CancellationToken ct = default)
     {
+        logger.LogInformation("Releasing hold {HoldId}", holdId);
+
         var result = await holdRepository.AtomicTransitionAsync(
             holdId, HoldStatus.Active, HoldStatus.Released, DateTime.UtcNow, ct);
 
@@ -89,6 +102,7 @@ public sealed class HoldService(
         }
 
         await inventoryRepository.IncrementAsync(result.Items, ct);
+        logger.LogInformation("Hold {HoldId} released, inventory restored", holdId);
         await cache.InvalidateInventoryAsync(ct);
         await cache.InvalidateHoldAsync(holdId, ct);
         try { await eventPublisher.PublishHoldReleasedAsync(result, ct); }

@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 RUN groupadd --gid 1001 appgroup && \
     useradd --uid 1001 --gid appgroup --no-create-home appuser
+RUN mkdir -p /app/logs && chown appuser:appgroup /app/logs
 COPY --from=build /app/publish .
 USER appuser
 EXPOSE 8080

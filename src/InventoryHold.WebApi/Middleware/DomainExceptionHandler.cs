@@ -4,7 +4,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace InventoryHold.WebApi.Middleware;
 
-public sealed class DomainExceptionHandler : IExceptionHandler
+public sealed class DomainExceptionHandler(
+    ILogger<DomainExceptionHandler> logger) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(
         HttpContext context, Exception exception, CancellationToken ct)
@@ -21,6 +22,10 @@ public sealed class DomainExceptionHandler : IExceptionHandler
         };
 
         if (pd is null) return false;
+
+        logger.LogWarning(exception,
+            "Domain exception {ExceptionType} → HTTP {Status}: {Title}",
+            exception.GetType().Name, pd.Status, pd.Title);
 
         context.Response.StatusCode = pd.Status!.Value;
         await context.Response.WriteAsJsonAsync(pd, ct);
