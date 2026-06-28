@@ -297,6 +297,32 @@ Domain entities have `private set` and no BsonAttributes. Options: (a) add BsonA
 
 ---
 
+## Phase 9 — Redis Caching (TDD)
+
+**Files created:** `Infrastructure/Caching/RedisCacheService.cs`, `UnitTests/Infrastructure/RedisCacheServiceTests.cs`
+**Files modified:** `WebApi/Services/HoldService.cs`, `WebApi/Program.cs`, `UnitTests/Application/CreateHoldServiceTests.cs`
+
+**Key design decisions:**
+- `HoldCacheDto` + `HoldItemCacheDto` internal records live in same file as `RedisCacheService` — `Hold` has `private set` properties that STJ cannot deserialize directly; DTOs bridge the gap without polluting the Domain layer
+- `Hold.Reconstruct(...)` from Phase 3 used in `GetHoldAsync` — rehydrates domain object from DTO fields without re-running invariant validation
+- `FlushAllAsync` deletes only the 2 static keys (`inventory:all`, `settings:expiration-minutes`); individual `hold:{id}` keys expire via their 60s TTL — avoids `IServer` dependency for `FLUSHDB`
+- Settings cache-first in `CreateHoldAsync` — on cache hit, skips MongoDB query for expiration minutes entirely
+- `InvalidateInventoryAsync` called immediately after successful `AttemptCreateAsync` — ensures next `GET /api/inventory` reflects the decremented available quantities
+
+**SE.Redis v3 breaking change encountered:**
+`StringSetAsync` in v3.0.x changed signature from `(key, value, TimeSpan? expiry, bool keepTtl, When when, CommandFlags flags)` (6 params) to `(key, value, Expiration expiry, When when, CommandFlags flags)` (5 params, `Expiration` struct absorbs `keepTtl`). Moq `Callback<..., TimeSpan?, bool, ...>` silently failed because the overload didn't match. Resolved via `_db.Invocations` to read actual arguments post-call, casting `Arguments[2]` as `Expiration` for TTL assertion.
+
+**TTL values:**
+| Key pattern | TTL |
+|-------------|-----|
+| `inventory:all` | 30s |
+| `hold:{id}` | 60s |
+| `settings:expiration-minutes` | 60s |
+
+**Verification:** `dotnet test` → **Passed: 79, Failed: 0** (66 Phase 2–8 + 13 Phase 9)
+
+---
+
 ## Human Audit
 *(Specific examples of AI suggestions accepted and rejected — to be documented during development)*
 

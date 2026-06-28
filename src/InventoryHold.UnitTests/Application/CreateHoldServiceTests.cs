@@ -144,6 +144,33 @@ public class CreateHoldServiceTests
         _publisher.Verify(p => p.PublishHoldCreatedAsync(It.IsAny<Hold>(), default), Times.Once);
     }
 
+    // Cache behaviour
+
+    [Fact]
+    public async Task CreateHoldAsync_Success_InvalidatesInventoryCache()
+    {
+        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default)).ReturnsAsync(WidgetA);
+        _holds.Setup(r => r.InsertAsync(It.IsAny<Hold>(), _tx.Object, default))
+              .ReturnsAsync((Hold h, IMongoTransaction? _, CancellationToken _) => h);
+
+        await _service.CreateHoldAsync(new("Alice", [new("widget-a", 1)]), default);
+
+        _cache.Verify(c => c.InvalidateInventoryAsync(default), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateHoldAsync_ExpirationMinutesCached_SkipsSettingsRepository()
+    {
+        _cache.Setup(c => c.GetExpirationMinutesAsync(default)).ReturnsAsync(15);
+        _inventory.Setup(r => r.GetByProductIdAsync("widget-a", default)).ReturnsAsync(WidgetA);
+        _holds.Setup(r => r.InsertAsync(It.IsAny<Hold>(), _tx.Object, default))
+              .ReturnsAsync((Hold h, IMongoTransaction? _, CancellationToken _) => h);
+
+        await _service.CreateHoldAsync(new("Alice", [new("widget-a", 1)]), default);
+
+        _settings.Verify(r => r.GetExpirationMinutesAsync(It.IsAny<int>(), default), Times.Never);
+    }
+
     // Write conflict retry
 
     [Fact]

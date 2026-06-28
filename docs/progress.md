@@ -301,7 +301,7 @@
 >
 > **Skills:** `dotnet-backend-patterns` · `azure-resource-manager-redis-dotnet` · `application-performance-performance-optimization`
 
-- ⬜ **9.1** `[TEST]` Write `RedisCacheServiceTests` (mock `IConnectionMultiplexer`):
+- ✅ **9.1** `[TEST]` Write `RedisCacheServiceTests` (mock `IConnectionMultiplexer`):
   - `GetInventoryAsync` returns deserialized list on hit; null on miss
   - `SetInventoryAsync` serializes and sets with 30s TTL
   - `InvalidateInventoryAsync` deletes `inventory:all` key
@@ -310,20 +310,20 @@
   - `InvalidateHoldAsync` deletes `hold:{holdId}`
   - `GetExpirationMinutesAsync` returns parsed int on hit; null on miss
   - `SetExpirationMinutesAsync` sets with 60s TTL
-- ⬜ **9.2** Write `RedisCacheService` implementing `IInventoryCache` — make tests pass
+- ✅ **9.2** Write `RedisCacheService` implementing `IInventoryCache` — make tests pass
   - Use `IDatabase` from `StackExchange.Redis`
   - Serialize/deserialize with `System.Text.Json`
-- ⬜ **9.3** Register `IConnectionMultiplexer` (singleton) and `RedisCacheService` (scoped) in `Program.cs`
-- ⬜ **9.4** Wire cache into `GET /api/inventory`:
+- ✅ **9.3** Register `IConnectionMultiplexer` (singleton) and `RedisCacheService` in `Program.cs`
+- ✅ **9.4** Wire cache into `GET /api/inventory`:
   - Try cache → miss → hit DB → set cache → return
-- ⬜ **9.5** Wire cache into `GET /api/holds/{holdId}`:
+- ✅ **9.5** Wire cache into `GET /api/holds/{holdId}`:
   - Try cache → miss → hit DB → set cache → return
-- ⬜ **9.6** Wire cache invalidation:
+- ✅ **9.6** Wire cache invalidation:
   - `POST /api/holds` success → DEL `inventory:all`
   - `DELETE /api/holds/{id}` success → DEL `inventory:all`, DEL `hold:{id}`
   - `HoldExpiryWorker` (if any expired) → DEL `inventory:all`
   - `POST /api/inventory/reset` → flush all
-- ⬜ **9.7** Wire settings cache into `ISettingsRepository.GetExpirationMinutesAsync`:
+- ✅ **9.7** Wire settings cache into `CreateHoldAsync`:
   - Try Redis → miss → hit MongoDB → set Redis → return
 - ⬜ **9.8** Verify: `GET /api/inventory` twice → check Redis CLI `GET inventory:all` is populated after first call
 
@@ -531,7 +531,7 @@
 | 6 | GET + DELETE endpoints (TDD) | ⬜ |
 | 7 | Inventory + Reset (TDD) | ⬜ |
 | 8 | RabbitMQ publisher (TDD) | ✅ |
-| 9 | Redis caching (TDD) | ⬜ |
+| 9 | Redis caching (TDD) | ✅ |
 | 10 | Health checks + Swagger | ⬜ |
 | 11 | Unit test suite complete | ⬜ |
 | 12 | Frontend React | ⬜ |

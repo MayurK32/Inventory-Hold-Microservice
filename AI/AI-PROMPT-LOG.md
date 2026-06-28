@@ -374,3 +374,22 @@ Redis connection string format gotcha documented: StackExchange.Redis requires `
 - Second `dotnet run` confirmed: `amqp://localhost:5672`, exchange declared, 3 queues declared and bound — topology init complete
 - Key insight documented: `appsettings.json` uses `"Host": "rabbitmq"` (Docker service name for container-to-container), `appsettings.Development.json` overrides to `"Host": "localhost"` for local dev — this layering is intentional and correct
 - Phase 8 manual verification complete: messages confirmed in `hold.created.queue` and `hold.expired.queue`
+
+---
+
+## Session 9 — 2026-06-28: Phase 9 Redis Caching
+
+### PROMPT-024
+**Phase:** Implementation — Phase 9 (Redis Caching, TDD)
+**Tool:** Claude Code (Write + Edit + Bash)
+**Purpose:** Replace `NullInventoryCache` stub with a real Redis implementation via `StackExchange.Redis`. TDD: 11 `RedisCacheServiceTests` + 2 new `CreateHoldServiceTests` covering cache hit/miss, TTL correctness, inventory/hold invalidation, and settings caching.
+**Prompt Summary:**
+> "plan phase 9" → plan approved → implementation proceeded automatically
+**Outcome:**
+- `RedisCacheService.cs` created in `Infrastructure/Caching/` with internal `HoldCacheDto` + `HoldItemCacheDto` for Hold serialization (`Hold` has private set properties incompatible with STJ direct deserialization)
+- `RedisCacheServiceTests.cs` created (11 tests): inventory hit/miss/set/invalidate, hold hit/miss/set/invalidate, settings hit/set, FlushAll
+- `HoldService.CreateHoldAsync` updated: cache-first settings lookup (skips MongoDB if Redis has expiry value); `InvalidateInventoryAsync` called after `AttemptCreateAsync` succeeds
+- `CreateHoldServiceTests.cs`: 2 new tests — `CreateHoldAsync_Success_InvalidatesInventoryCache` and `CreateHoldAsync_ExpirationMinutesCached_SkipsSettingsRepository`
+- `Program.cs` updated: `IConnectionMultiplexer` singleton registered via `ConnectionMultiplexer.Connect`; `RedisCacheService` replaces `NullInventoryCache`
+- `dotnet test` → **Passed: 79, Failed: 0** (66 Phase 2–8 + 11 RedisCacheService + 2 CreateHold cache)
+- **Non-obvious fix:** `StackExchange.Redis 3.0.x` changed `StringSetAsync` signature — `TimeSpan? expiry` + `bool keepTtl` (v2 style, 6 params) replaced by a new `Expiration` struct (v3 style, 5 params). Moq `Callback<..., TimeSpan?, bool, ...>` silently did not fire because the overload didn't match. Resolved by using `_db.Invocations` to inspect captured arguments directly and casting `Arguments[2]` to `Expiration` for TTL assertions.

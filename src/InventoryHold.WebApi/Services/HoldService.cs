@@ -30,14 +30,25 @@ public sealed class HoldService(
             if (item.Quantity <= 0)
                 throw new DomainException($"Quantity for '{item.ProductId}' must be at least 1.");
 
-        var expirationMinutes = await settingsRepository
-            .GetExpirationMinutesAsync(holdSettings.Value.ExpirationMinutes, ct);
+        var cachedExpiry = await cache.GetExpirationMinutesAsync(ct);
+        int expirationMinutes;
+        if (cachedExpiry.HasValue)
+        {
+            expirationMinutes = cachedExpiry.Value;
+        }
+        else
+        {
+            expirationMinutes = await settingsRepository
+                .GetExpirationMinutesAsync(holdSettings.Value.ExpirationMinutes, ct);
+            await cache.SetExpirationMinutesAsync(expirationMinutes, ct);
+        }
 
         for (var attempt = 0; attempt < 3; attempt++)
         {
             try
             {
                 var created = await AttemptCreateAsync(request, expirationMinutes, ct);
+                await cache.InvalidateInventoryAsync(ct);
                 try { await eventPublisher.PublishHoldCreatedAsync(created, ct); }
                 catch (Exception ex) { logger.LogError(ex, "Failed to publish HoldCreated for {HoldId}", created.Id); }
                 return created;

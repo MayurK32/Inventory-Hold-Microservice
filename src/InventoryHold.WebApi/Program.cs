@@ -9,8 +9,10 @@ using InventoryHold.Infrastructure.Transactions;
 using InventoryHold.WebApi.Endpoints;
 using InventoryHold.WebApi.Middleware;
 using InventoryHold.WebApi.Services;
+using InventoryHold.Infrastructure.Caching;
 using InventoryHold.Infrastructure.Messaging;
 using InventoryHold.WebApi.Stubs;
+using StackExchange.Redis;
 using RabbitMQ.Client;
 using InventoryHold.WebApi.Workers;
 using MongoDB.Driver;
@@ -46,7 +48,11 @@ builder.Services.AddSingleton<ITransactionFactory, MongoTransactionFactory>();
 builder.Services.AddSingleton<CollectionIndexInitializer>();
 builder.Services.AddSingleton<DatabaseSeeder>();
 
-// TODO Phase 9: Redis — IConnectionMultiplexer, RedisCacheService
+// Phase 9: Redis
+var redisConnectionString = builder.Configuration.GetValue<string>("Redis:ConnectionString")!;
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect(redisConnectionString));
+builder.Services.AddSingleton<IInventoryCache, RedisCacheService>();
 
 // Phase 8: RabbitMQ
 var rabbitMqSettings = builder.Configuration.GetSection("RabbitMq").Get<RabbitMqSettings>()!;
@@ -54,7 +60,6 @@ builder.Services.AddSingleton<IConnection>(_ =>
     RabbitMqConnectionFactory.CreateAsync(rabbitMqSettings).GetAwaiter().GetResult());
 builder.Services.AddSingleton<RabbitMqTopologyInitializer>();
 builder.Services.AddSingleton<IHoldEventPublisher, RabbitMqHoldEventPublisher>();
-builder.Services.AddSingleton<IInventoryCache, NullInventoryCache>();
 builder.Services.AddHostedService<HoldExpiryWorker>();
 // TODO Phase 10: Health checks — MongoDB, Redis, RabbitMQ
 
