@@ -36,6 +36,7 @@ export default function HoldCard({ hold }: Props) {
     if (hold.status !== 'Active') return
     if (secondsLeft <= 0) {
       queryClient.invalidateQueries({ queryKey: ['holds'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
       return
     }
     const id = setInterval(() => setSecondsLeft(s => s - 1), 1000)
