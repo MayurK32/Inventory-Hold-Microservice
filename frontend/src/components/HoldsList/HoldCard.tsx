@@ -34,14 +34,19 @@ export default function HoldCard({ hold }: Props) {
 
   useEffect(() => {
     if (hold.status !== 'Active') return
-    if (secondsLeft <= 0) {
-      queryClient.invalidateQueries({ queryKey: ['holds'] })
-      queryClient.invalidateQueries({ queryKey: ['inventory'] })
-      return
-    }
-    const id = setInterval(() => setSecondsLeft(s => s - 1), 1000)
+    const id = setInterval(() => {
+      const remaining = Math.max(
+        0,
+        Math.floor((new Date(hold.expiresAt).getTime() - Date.now()) / 1000)
+      )
+      setSecondsLeft(remaining)
+      if (remaining === 0) {
+        queryClient.invalidateQueries({ queryKey: ['holds'] })
+        queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      }
+    }, 1000)
     return () => clearInterval(id)
-  }, [secondsLeft, hold.status, queryClient])
+  }, [hold.expiresAt, hold.status, queryClient])
 
   const release = useMutation({
     mutationFn: () => releaseHold(hold.holdId),
