@@ -398,83 +398,150 @@ Zero tests require Docker — all infrastructure mocked via Moq.
 
 ## Human Audit
 
-The following are concrete examples where AI suggestions were accepted or rejected, and the reasoning behind each decision.
-
-### Rejected — Dockerfile user creation commands (Alpine vs Debian)
-
-AI generated `addgroup`/`adduser` for the .NET API Dockerfile:
-```dockerfile
-RUN addgroup --gid 1001 appgroup && adduser --uid 1001 --gid 1001 ...
-```
-**Rejected.** `mcr.microsoft.com/dotnet/aspnet:10.0` is Debian Bookworm, not Alpine. `addgroup`/`adduser` are BusyBox/Alpine commands that don't exist on Debian — the build fails with `/bin/sh: 1: addgroup: not found`. Corrected to:
-```dockerfile
-RUN groupadd --gid 1001 appgroup && useradd --uid 1001 --gid appgroup --no-create-home appuser
-```
-AI was not aware of the base image's Linux distribution at generation time. This required knowing the .NET 10 image lineage.
+This section records every design decision made during the Q&A phase and every implementation-phase correction. The Q&A decisions are the load-bearing ones — they determined the entire system shape before a single line of code was written.
 
 ---
 
-### Rejected — MongoDB replica set member hostname
+### Part 1 — Architecture Decisions (Q&A Phase)
 
-AI initiated the RS with:
-```js
-rs.initiate({_id:'rs0', members:[{_id:0, host:'localhost:27017'}]})
-```
-**Rejected.** Inside a Docker network, each container's `localhost` is itself. The .NET API container resolving `localhost:27017` connects to itself, not MongoDB. Changed to `host:'mongodb:27017'` (the Docker Compose service name). Also required `?directConnection=true` in the MongoDB URI to skip topology discovery and prevent the driver from re-resolving the member host from `mongodb:` back to `localhost:`. Two-part fix that AI initially missed as a single problem.
+#### Concurrency & Race Conditions
 
----
+**Q1 — Multi-item (cart-level) hold over single-product hold**
+AI offered both options. Chosen: one hold covers multiple products — a checkout-level atomic unit. Consequence: multi-document MongoDB transactions are required (a single-document `findOneAndUpdate` is insufficient). This raised the implementation complexity bar significantly but reflects real commerce semantics.
 
-### Rejected — Healthcheck using `wget`
+**Q8 — All-or-nothing stock validation, not partial holds**
+AI offered a partial-fill alternative (hold what's available, skip the rest). Rejected. Chosen: atomic rollback with `409 Conflict` returning a per-item failure list (`productId`, requested qty, available qty). A partial hold that silently skips items would confuse the customer about what they actually have reserved.
 
-AI's initial healthcheck in docker-compose:
-```yaml
-test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-```
-**Rejected.** Neither `wget` nor `curl` are pre-installed in `mcr.microsoft.com/dotnet/aspnet:10.0`. The healthcheck exits 127 ("not found") and the container is forever unhealthy. Required adding `apt-get install -y curl` to the Dockerfile and switching to `["CMD", "curl", "-sf", "http://localhost:8080/health"]`. AI assumed a curl-capable environment; actual Debian aspnet images are minimal.
+**Q23 — Atomic `findOneAndUpdate` with `status: "Active"` guard to prevent double inventory restoration**
+AI presented a distributed lock as one option. Rejected. Chosen: filter on `{ _id, status: "Active" }` means only one caller — the worker or the client DELETE — can win the status transition. The loser gets `null` back and skips inventory restore and event publish. No lock, no coordination overhead, no distributed state.
+
+**Q26 — Retry write conflicts 3× with 50ms backoff before returning 409**
+AI presented immediate 409 on first conflict as the simpler option. Rejected. Under burst traffic, two concurrent requests for the last unit will both see sufficient stock inside their transactions, but only one can commit. Without retry, the first collision always produces a 409 that the user didn't deserve. Retry gives the transaction a second attempt with the correct post-commit stock view.
 
 ---
 
-### Rejected — `@rolldown/binding-win32-x64-msvc` in hard dependencies
+#### API Contract & HTTP Semantics
 
-AI left the Windows Vite binding in `dependencies`:
-```json
-"dependencies": { "@rolldown/binding-win32-x64-msvc": "^1.1.3" }
-```
-**Rejected.** npm refuses to install packages whose `os` field doesn't match the current platform. Linux Docker containers fail with `EBADPLATFORM` during `npm ci`. Moved to `optionalDependencies` so Linux containers skip the package without failing the build.
+**Q4/Q5/Q15/Q29/Q30/Q31 — HTTP code matrix for hold states**
+AI initially proposed a single 404 for all "not found or gone" cases. Rejected. Final matrix:
 
----
+| Scenario | Code | Reasoning |
+|---|---|---|
+| GET expired/released hold | 200 with `status` field | Reads always return the document; status field carries meaning |
+| DELETE on expired hold | 410 Gone | Terminal state — inventory already restored, don't retry |
+| DELETE on released hold | 410 Gone | Same: terminal, consistent client logic |
+| DELETE/GET non-existent holdId | 404 Not Found | Never existed vs existed-but-gone are semantically distinct |
+| DELETE success | 200 with released hold document | Frontend updates card immediately without a follow-up GET |
 
-### Rejected — Frontend on port 80
+**Q12 — RFC 7807 ProblemDetails throughout, not a custom envelope**
+AI offered a custom JSON error envelope. Rejected. ProblemDetails is the .NET 10 standard, reviewers will recognise it, and it supports extension fields for domain-specific data (the `failures[]` array on 409).
 
-AI mapped the frontend service:
-```yaml
-ports: ["80:80"]
-```
-**Rejected.** Windows requires admin elevation to bind to port 80. `docker-compose up` fails with `An attempt was made to access a socket in a way forbidden by its access permissions`. Changed to `3000:80` — host port 3000 has no elevation requirement.
-
----
-
-### Accepted — `directConnection=true` to bypass RS topology redirect
-
-After diagnosing the MongoDB redirect issue, AI proposed adding `?directConnection=true` to the connection string as an alternative to restructuring the network. **Accepted.** This is the idiomatic .NET MongoDB driver flag for this exact scenario — it instructs the driver to treat the URI host as a direct endpoint and skip topology discovery entirely. Clean one-line fix without any Docker network changes.
+**Q2 — Add `GET /api/holds` as an implicit 5th endpoint**
+The spec listed 4 endpoints. AI accepted the spec literally. Rejected. A frontend that tracks hold IDs in memory is fragile and untestable. Added list endpoint with `?status=` filter and pagination.
 
 ---
 
-### Accepted — Separate `vitest.config.ts` instead of triple-slash reference
+#### Data Model
 
-When `tsc -b` inside Docker produced `TS2769: No overload matches this call` on the `test` property in `vite.config.ts`, AI proposed splitting the config into two files: a clean `vite.config.ts` (build only, no `test` block) and a new `vitest.config.ts` using `import { defineConfig } from 'vitest/config'`. **Accepted.** The root cause is that `/// <reference types="vitest" />` only works when TypeScript loads vitest's type augmentation — which doesn't happen during `tsc -b` in a Docker build where `tsconfig.node.json` lists only `types: ["node"]`. The separate config file imports vitest's own `defineConfig` which natively types `test`, no augmentation needed.
+**Q3 — Materialized `availableQuantity` on inventory documents, not computed from holds**
+AI suggested computing available stock on every read by joining holds. Rejected. A join on every inventory read is O(n × m). Chosen: `availableQuantity` is a stored, atomic-increment field. `POST /api/holds` → `$inc -N`. Worker/DELETE → `$inc +N`. `GET /api/inventory` is a pure read with no joins. `heldQuantity` (Q10) is then `totalQuantity - availableQuantity` computed at read time — no storage needed.
+
+**Q6 — Hold expiration stored in MongoDB settings collection, not appsettings.json only**
+AI defaulted to appsettings.json. Rejected for runtime mutability. Chosen: read from a `settings` MongoDB collection first, fall back to `HoldSettings.ExpirationMinutes` from appsettings if absent. Cached in Redis at 60s TTL to avoid a DB hit on every hold creation.
+
+**Q25 — GUID string for hold `_id`, not MongoDB ObjectId**
+AI defaulted to ObjectId. Rejected. GUID: doesn't expose DB technology in URLs, is standard in .NET, generatable before insert (useful for idempotency), readable in logs. Inventory documents keep ObjectId internally — no client-visible impact.
+
+**Q36 — All timestamps `DateTime.UtcNow`, `DateTime.Now` forbidden**
+Not in the spec. Decided proactively before any code was written. All 4 hold timestamps (`createdAt`, `expiresAt`, `releasedAt`, `expiredAt`) use UTC. Enforced as a codebase-wide rule.
 
 ---
 
-### Accepted — Application services in WebApi layer, not Domain layer
+#### Caching
 
-The assignment spec suggests `Domain/Services/` for business logic. AI proposed placing `HoldService` and `InventoryService` in `WebApi/Services/` as application-layer services instead. **Accepted.** This keeps the Domain project free of infrastructure dependencies and independently testable. The Domain layer contains only entities, typed exceptions, and repository/messaging interfaces — pure business rules. Application services (orchestration of domain + infrastructure) are a WebApi concern. The trade-off is a mild departure from the spec's folder structure, documented here and in the README.
+**Q13 — Cache `GET /api/inventory` and `GET /api/holds/{id}`, but NOT the holds list**
+AI initially suggested caching all read endpoints. The holds list was specifically excluded. Reason: the list changes every 30 seconds from the background worker plus on every create/release mutation. Cache invalidation on every write adds overhead that outweighs the read benefit. Direct MongoDB reads against the `{status, createdAt}` index is sufficient.
+
+**Q35 — Only invalidate Redis if holds actually expired (not on every worker tick)**
+AI generated unconditional `InvalidateInventoryAsync()` in the worker. Rejected. If a tick finds zero expired holds, there is nothing to invalidate — no inventory changed. Conditional invalidation: count transitioned holds; call Redis only if `transitioned > 0`.
 
 ---
 
-### Accepted — `happy-dom` over `jsdom` for Vitest
+#### Infrastructure & Messaging
 
-AI warned that `jsdom` pulls in `@exodus/bytes` which is ESM-only and breaks Vitest's CJS require path. Proposed `happy-dom` as a drop-in replacement. **Accepted.** The warning proved correct — switching to happy-dom eliminated the module resolution error with no behavioral difference in DOM-related tests.
+**Q11 — Direct exchange with three queues, one per event type**
+AI offered topic exchange as an alternative. Rejected for this scope. Direct exchange is the simplest topology that correctly routes each event type to independent consumer queues. Topic exchange adds routing-key wildcards that would be unnecessary complexity without multiple consumer groups per event.
+
+**Q16 — Fire-and-forget for RabbitMQ publish failures**
+AI offered fail-the-request as one option. Rejected. The HTTP response and DB transaction are complete before publish — rolling back the DB because a message broker had a transient hiccup is wrong. Chosen: log at Error level, continue. Documented trade-off: production would use the Transactional Outbox Pattern for at-least-once delivery guarantees.
+
+**Q21 — `/health` with per-dependency status (MongoDB + Redis + RabbitMQ)**
+AI offered a stub `/health → 200` with no actual dependency checks. Rejected. The health endpoint is the `depends_on: condition: service_healthy` signal in docker-compose — a stub that always returns 200 removes the only thing that prevents the API from starting before MongoDB initialises its replica set.
+
+**Q32 — Publishers only, no consumer implementation**
+Confirmed scope boundary. This service publishes events with sufficient payload for downstream consumers to act without secondary DB lookups (`items[]` included in all events, per Q27). No consumer workers in this repo.
+
+---
+
+#### Frontend
+
+**Q14 — TanStack Query for server state, Zustand for UI state only**
+AI offered Redux as an option. Rejected as overkill. AI also offered Zustand-only. Rejected — Zustand isn't designed for server state; you'd manually reimplement caching, background refetch, and mutation status. Chosen split: TanStack Query owns all API data, Zustand owns filter toggle, current page, and toast queue.
+
+**Q17 — Client-computed countdown from `expiresAt` timestamp**
+AI offered server-computed `remainingSeconds`. Rejected — stale immediately after the response is received. Client reads `expiresAt` from the API response, runs a `setInterval`, and refetches from TanStack Query when the timer hits zero to confirm expiry status.
+
+**Q19 — Frontend in docker-compose, not npm run dev separately**
+AI offered both. Chosen: single `docker-compose up --build` starts the full stack. Multi-stage Dockerfile: Node build (Vite) → Nginx serve. Nginx reverse-proxies `/api/*` to the .NET API container — no CORS issues, no hardcoded localhost ports in the React bundle.
+
+**Q37 — Inline errors for domain errors, toast for network/500 errors**
+Chosen pattern: 409/404/422 API errors display inline in the form or section where the action originated (using ProblemDetails `detail` message directly). Network failures and 5xx errors show a dismissable toast — non-blocking, no modal required.
+
+---
+
+#### Operations
+
+**Q22 — Seed only on empty collection; expose `POST /api/inventory/reset` for reviewer resets**
+AI offered always-seed-on-startup. Rejected — it would wipe demo state on every container restart. Chosen: check `count == 0` before seeding. Reset endpoint added for reviewers to restore initial quantities without `docker-compose down -v`.
+
+**Q34 — Hard cap `pageSize` at 100, return 422 if exceeded**
+Not in the spec. AI left `pageSize` unbounded. Rejected — `?pageSize=999999` is a trivial resource exhaustion vector. Cap enforced at the service layer with `422 Unprocessable Entity`.
+
+**Q24 — Explicit index decisions before any code**
+AI left indexes as a Phase 3 afterthought. Moved to pre-implementation decision:
+- `holds: { status: 1, expiresAt: 1 }` — background worker query
+- `holds: { status: 1, createdAt: -1 }` — list endpoint sort
+- `inventory: { productId: 1 }` unique — hold creation validation lookup
+
+---
+
+### Part 2 — Implementation-Phase Corrections
+
+These are cases where AI-generated code was wrong due to environment assumptions or version-specific behaviour, caught during build or test.
+
+**Rejected — `addgroup`/`adduser` in Dockerfile**
+AI used BusyBox/Alpine commands. `mcr.microsoft.com/dotnet/aspnet:10.0` is Debian Bookworm — these commands don't exist. Fixed to `groupadd`/`useradd`.
+
+**Rejected — MongoDB RS member as `localhost:27017`**
+Inside Docker, `localhost` is the container itself. API container resolving `localhost:27017` connects to itself, not MongoDB. Fixed to `host:'mongodb:27017'` plus `?directConnection=true` in the MongoDB URI to skip topology re-resolution.
+
+**Rejected — Healthcheck using `wget`**
+`mcr.microsoft.com/dotnet/aspnet:10.0` ships without `wget` or `curl`. Healthcheck exited 127 and the container was forever unhealthy. Fixed: `apt-get install -y curl` in Dockerfile, `["CMD", "curl", "-sf", "http://localhost:8080/health"]` in docker-compose.
+
+**Rejected — `@rolldown/binding-win32-x64-msvc` in hard `dependencies`**
+npm refuses Windows-only packages on Linux (`EBADPLATFORM`). Moved to `optionalDependencies` so Linux Docker containers skip it without build failure.
+
+**Rejected — Frontend on port 80**
+Port 80 requires admin elevation on Windows. Fixed to `3000:80`.
+
+**Accepted — `directConnection=true` to bypass RS topology redirect**
+After identifying the MongoDB redirect root cause, AI proposed this flag. Accepted as the idiomatic .NET MongoDB driver solution — tells the driver to treat the URI host as a direct endpoint, no topology discovery.
+
+**Accepted — Separate `vitest.config.ts`**
+`/// <reference types="vitest" />` doesn't load in Docker's `tsc -b` context when `tsconfig.node.json` has no vitest in its `types` array. AI proposed splitting into `vite.config.ts` (build only) and `vitest.config.ts` (imports vitest's own `defineConfig`, which types `test` natively). Accepted.
+
+**Accepted — `HoldService` and `InventoryService` in `WebApi/Services/`, not Domain**
+Spec suggests `Domain/Services/`. AI proposed WebApi layer. Accepted: Domain stays infrastructure-free and independently testable. Application services (orchestrating domain + infrastructure) are a WebApi concern.
 
 ---
 
