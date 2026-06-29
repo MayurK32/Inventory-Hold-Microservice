@@ -478,28 +478,35 @@
 > **Skills:** `e2e-testing` · `api-documentation-generator` · `architecture-decision-records`
 
 ### QA Checklist (from HLD scenarios)
-- ⬜ **14.1** Scenario: Create hold happy path → 201 with correct payload
-- ⬜ **14.2** Scenario: Insufficient stock → 409 with `failures[]` listing device-z
-- ⬜ **14.3** Scenario: Concurrent requests → second request retries, eventually 409
-- ⬜ **14.4** Scenario: GET hold by ID → 200 for all states, 404 for unknown
-- ⬜ **14.5** Scenario: DELETE active hold → 200 with `releasedAt`, inventory restored
-- ⬜ **14.6** Scenario: DELETE expired hold → 410 with expiry detail
-- ⬜ **14.7** Scenario: DELETE non-existent hold → 404
-- ⬜ **14.8** Scenario: Background worker expiry → lower `HoldExpirationMinutes` to 1, verify hold transitions to Expired and inventory restored within 30s
-- ⬜ **14.9** Scenario: GET inventory cache → verify Redis `inventory:all` key populated (Redis CLI)
-- ⬜ **14.10** Scenario: RabbitMQ events → verify all 3 queues receive messages (Management UI)
-- ⬜ **14.11** Scenario: Reset endpoint → all holds cleared, inventory back to seed quantities
-- ⬜ **14.12** Run `dotnet test` → all tests pass
-- ⬜ **14.13** Run `docker-compose up --build` from cold → everything starts within 60s
+- ✅ **14.1** Scenario: Create hold happy path → 201 with correct payload
+- ✅ **14.2** Scenario: Insufficient stock → 409 with `failures[]` listing device-z
+- ✅ **14.3** Scenario: Concurrent requests → second request retries, eventually 409
+- ✅ **14.4** Scenario: GET hold by ID → 200 for all states, 404 for unknown
+- ✅ **14.5** Scenario: DELETE active hold → 200 with `releasedAt`, inventory restored
+- ✅ **14.6** Scenario: DELETE expired hold → 410 with expiry detail
+- ✅ **14.7** Scenario: DELETE non-existent hold → 404
+- ✅ **14.8** Scenario: Background worker expiry → `HoldExpirationMinutes: 1`, hold → Expired within 30s, inventory restored
+- ✅ **14.9** Scenario: GET inventory cache → Redis `inventory:all` key populated after first call
+- ✅ **14.10** Scenario: RabbitMQ events → all 3 queues receive messages (verified via Management UI)
+- ✅ **14.11** Scenario: Reset endpoint → all holds cleared, inventory back to seed quantities
+- ✅ **14.12** `dotnet test` → 88 passed, 0 failed
+- ✅ **14.13** `docker-compose up --build` from cold → all 5 services healthy within 60s
 
 ### README
-- ⬜ **14.14** Write `README.md` with:
-  - Prerequisites (Docker Desktop)
-  - One-command startup: `docker-compose up --build`
-  - Service URLs (frontend :80, Swagger /swagger, RabbitMQ Management :15672, Health /health)
-  - How to run tests: `dotnet test`
-  - How to reset demo: `POST /api/inventory/reset`
-  - Brief design decisions summary (link to HLD, design-discussion.md)
+- ✅ **14.14** `README.md` complete: prerequisites, one-command startup, service URLs, test instructions, reset demo, HLD Mermaid diagram, seed data, configuration table, architecture section, frontend section
+
+---
+
+## Phase 16 — Post-Review Corrections
+
+> Bugs and correctness issues identified during senior interviewer self-review, fixed after submission.
+
+- ✅ **16.1** **Cursor compound predicate** — `GetPagedByCursorAsync` previously filtered only on `Lt(createdAt)`, silently skipping holds with identical millisecond timestamps at page boundaries. Fixed to `Or(Lt(createdAt), And(Eq(createdAt), Lt(id)))` with compound sort `(createdAt DESC, id DESC)`. `MongoHoldRepository.cs`
+- ✅ **16.2** **Repositories Singleton → Scoped** — `IHoldRepository`, `IInventoryRepository`, `ISettingsRepository`, `ITransactionFactory` changed from `AddSingleton` to `AddScoped` in `Program.cs`. MongoDB state is per-request; Singleton lifetime was a latent bug if any per-request state was ever added.
+- ✅ **16.3** **`HoldExpiryWorker` → `IServiceScopeFactory`** — `BackgroundService` is Singleton and cannot take Scoped dependencies directly. Refactored to inject `IServiceScopeFactory`; scope created inside the tick lock per execution (not per tick attempt — skipped ticks never allocate a scope). Updated `HoldExpiryWorkerTests` with full `ScopeFactory → IServiceScope → IServiceProvider` mock chain.
+- ✅ **16.4** **`HoldCard` countdown drift** — `setInterval(() => setSecondsLeft(s => s - 1), 1000)` accumulates drift when the browser tab is backgrounded (throttled timers). After 3 minutes the displayed time diverges ~25s from reality, visible as a jump on page refresh. Fixed: each tick now recalculates `Math.floor((new Date(expiresAt) - Date.now()) / 1000)` from wall clock. Effect dependency changed from `[secondsLeft, ...]` to `[expiresAt, ...]` — interval registered once per hold, not re-registered every second.
+- ✅ **16.5** **README HLD diagram** — Mermaid `flowchart TD` added to `README.md` showing full path: Browser → nginx → API layers (Endpoints → Services → Domain → Infrastructure) → MongoDB/Redis/RabbitMQ, plus `HoldExpiryWorker` polling loop.
+- ✅ **16.6** **AI-USAGE Human Audit Part 2** — replaced implementation-phase corrections list with architectural trade-off analysis: Background Worker vs In-Process Timer/Delegate vs RabbitMQ DLX, with pros/cons table at millions-of-customers scale and justification for the polling choice.
 
 ---
 
@@ -543,5 +550,6 @@
 | 11 | Unit test suite (88 tests) | ✅ |
 | 12 | Frontend React | ✅ |
 | 13 | Nginx + full Docker | ✅ |
-| 14 | Final QA + README | ⬜ |
+| 14 | Final QA + README | ✅ |
 | 15 | Performance fixes (B1–B12) | ✅ |
+| 16 | Post-review corrections | ✅ |
