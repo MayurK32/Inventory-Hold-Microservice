@@ -515,33 +515,34 @@ AI left indexes as a Phase 3 afterthought. Moved to pre-implementation decision:
 
 ---
 
-### Part 2 — Implementation-Phase Corrections
+### Part 2 — Background Worker vs In-Process Events/Delegates
 
-These are cases where AI-generated code was wrong due to environment assumptions or version-specific behaviour, caught during build or test.
+An alternative to the polling `HoldExpiryWorker` is scheduling an in-process delegate on hold creation that fires after the expiration window, cancelling it if the hold is released first.
 
-**Rejected — `addgroup`/`adduser` in Dockerfile**
-AI used BusyBox/Alpine commands. `mcr.microsoft.com/dotnet/aspnet:10.0` is Debian Bookworm — these commands don't exist. Fixed to `groupadd`/`useradd`.
+```csharp
+// on create:
+var cts = _timers[hold.Id] = new CancellationTokenSource();
+_ = Task.Delay(TimeSpan.FromMinutes(15), cts.Token)
+        .ContinueWith(_ => ExpireAsync(hold.Id), TaskContinuationOptions.NotOnCanceled);
 
-**Rejected — MongoDB RS member as `localhost:27017`**
-Inside Docker, `localhost` is the container itself. API container resolving `localhost:27017` connects to itself, not MongoDB. Fixed to `host:'mongodb:27017'` plus `?directConnection=true` in the MongoDB URI to skip topology re-resolution.
+// on release — instant cancel, no worker involved:
+if (_timers.TryRemove(hold.Id, out var cts)) cts.Cancel();
+```
 
-**Rejected — Healthcheck using `wget`**
-`mcr.microsoft.com/dotnet/aspnet:10.0` ships without `wget` or `curl`. Healthcheck exited 127 and the container was forever unhealthy. Fixed: `apt-get install -y curl` in Dockerfile, `["CMD", "curl", "-sf", "http://localhost:8080/health"]` in docker-compose.
+| | Background Poller (chosen) | In-process timer/delegate |
+|---|---|---|
+| **Expiry precision** | ±30s (poll interval) | Exact to the millisecond |
+| **Release reflects immediately** | Next poll cycle | Instant cancel |
+| **Crash / restart** | MongoDB is source of truth, worker resumes from DB state | All pending timers lost — holds stuck `Active` forever |
+| **Horizontal scale (2+ pods)** | Any pod can handle expiry | Pod A only knows holds it created; Pod B never expires them |
+| **Memory at 1M active holds** | Negligible | ~400–600 MB just for `Task` + `CancellationTokenSource` objects |
+| **Thundering herd** | `Parallel.ForEachAsync(degreeOfParallelism: 8)` throttles the burst | All callbacks for a batch of expiring holds fire simultaneously |
+| **Rolling deploys** | Zero impact | Requires drain logic or holds leak during deployment |
+| **Observability** | Worker tick logs and metrics are structured and searchable | Callbacks are invisible in the threadpool |
 
-**Rejected — `@rolldown/binding-win32-x64-msvc` in hard `dependencies`**
-npm refuses Windows-only packages on Linux (`EBADPLATFORM`). Moved to `optionalDependencies` so Linux Docker containers skip it without build failure.
+**Why polling was chosen:** the ±30s imprecision is the only real tradeoff. In exchange, MongoDB is always the authoritative state — a crash, a rolling deploy, or a second pod changes nothing about which holds eventually expire. The in-process approach fails at the first restart or the first second API instance.
 
-**Rejected — Frontend on port 80**
-Port 80 requires admin elevation on Windows. Fixed to `3000:80`.
-
-**Accepted — `directConnection=true` to bypass RS topology redirect**
-After identifying the MongoDB redirect root cause, AI proposed this flag. Accepted as the idiomatic .NET MongoDB driver solution — tells the driver to treat the URI host as a direct endpoint, no topology discovery.
-
-**Accepted — Separate `vitest.config.ts`**
-`/// <reference types="vitest" />` doesn't load in Docker's `tsc -b` context when `tsconfig.node.json` has no vitest in its `types` array. AI proposed splitting into `vite.config.ts` (build only) and `vitest.config.ts` (imports vitest's own `defineConfig`, which types `test` natively). Accepted.
-
-**Accepted — `HoldService` and `InventoryService` in `WebApi/Services/`, not Domain**
-Spec suggests `Domain/Services/`. AI proposed WebApi layer. Accepted: Domain stays infrastructure-free and independently testable. Application services (orchestrating domain + infrastructure) are a WebApi concern.
+**A third option — RabbitMQ Dead Letter Exchange (DLX):** publish `HoldCreated` with `x-message-ttl = 900000ms`; when TTL fires, RabbitMQ routes to a dead-letter queue; a consumer expires the hold. This is durable and horizontally scalable, but cancellation is hard — you cannot pull a specific message back out of RabbitMQ when a hold is released. The consumer still needs the same `FindOneAndUpdate { status: Active }` guard to handle the "already released" case, which is the same atomic check the polling worker uses. Added broker topology complexity for no meaningful gain over polling at this scale.
 
 ---
 
