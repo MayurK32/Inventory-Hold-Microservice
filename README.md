@@ -52,10 +52,15 @@ flowchart TD
 ## One-Command Startup
 
 ```bash
-docker-compose up --build
+docker compose up -d --build
 ```
 
-All 5 services start in dependency order. First run pulls images and compiles the .NET project (~2–3 minutes). Subsequent runs are faster.
+All 5 services start in dependency order in the background. First run pulls images and compiles the .NET project (~2–3 minutes). Subsequent runs are faster.
+
+To view API logs:
+```bash
+docker logs inventory-hold-microservice-main-api-1 --tail 50
+```
 
 | Service | URL | Notes |
 |---------|-----|-------|
